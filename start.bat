@@ -26,7 +26,7 @@ goto CHECK_BUN
 
 :CHECK_GIT_UPDATE
 echo [NikaForge] Git repository detected. Checking for updates...
-call git fetch
+call git -c http.sslVerify=false fetch
 call git status -uno | findstr /I /C:"Your branch is behind" >nul
 if %ERRORLEVEL% equ 0 goto DO_GIT_PULL
 echo [NikaForge] Extension is already up to date.
@@ -34,7 +34,7 @@ goto CHECK_BUN
 
 :DO_GIT_PULL
 echo [NikaForge] New version found! Pulling code...
-call git pull
+call git -c http.sslVerify=false pull
 set NEED_INSTALL=1
 
 rem ================= 3. check bun
