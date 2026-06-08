@@ -46,6 +46,9 @@ goto DEPENDENCIES
 
 :INSTALL_BUN
 echo [NikaForge] Bun is not installed. Attempting global install...
+echo [NikaForge] Force killing any running bun processes...
+taskkill /f /im bun.exe >nul 2>&1
+
 echo [NikaForge] Cleaning up corrupted Bun directories if any...
 if exist "%APPDATA%\npm\node_modules\bun" rd /s /q "%APPDATA%\npm\node_modules\bun"
 if exist "%APPDATA%\npm\bun" del /f /q "%APPDATA%\npm\bun"
@@ -60,7 +63,11 @@ call npm install -g bun
 if %ERRORLEVEL% equ 0 goto BUN_PATH_FIX
 
 :INSTALL_BUN_SCRIPT
-echo [NikaForge] Warning: npm install bun failed. Trying official script...
+echo [NikaForge] Warning: npm install bun failed. Trying zip download via mirror...
+powershell -Command "[Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12; $dir = '%USERPROFILE%\.bun\bin'; if (-not (Test-Path $dir)) { New-Item -ItemType Directory -Path $dir | Out-Null }; echo '[NikaForge] Downloading Bun zip from mirror...'; Invoke-WebRequest -Uri 'https://ghp.ci/https://github.com/oven-sh/bun/releases/latest/download/bun-windows-x64.zip' -OutFile '$dir\bun.zip'; echo '[NikaForge] Extracting Bun...'; Expand-Archive -Path '$dir\bun.zip' -DestinationPath '$dir\temp' -Force; Move-Item -Path '$dir\temp\bun-windows-x64\bun.exe' -Destination '$dir\bun.exe' -Force; Remove-Item -Recurse -Force '$dir\temp'; Remove-Item -Force '$dir\bun.zip'"
+if %ERRORLEVEL% equ 0 goto BUN_PATH_FIX
+
+echo [NikaForge] Mirror zip failed. Trying official script fallback...
 powershell -c "irm bun.sh/install.ps1 | iex"
 
 :BUN_PATH_FIX
@@ -77,6 +84,7 @@ if %ERRORLEVEL% neq 0 (
     pause
     exit /b 1
 )
+
 
 
 rem ================= 4. install dependencies
