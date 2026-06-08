@@ -46,9 +46,18 @@ goto DEPENDENCIES
 
 :INSTALL_BUN
 echo [NikaForge] Bun is not installed. Attempting global install...
+echo [NikaForge] Cleaning up corrupted Bun directories if any...
+if exist "%APPDATA%\npm\node_modules\bun" rd /s /q "%APPDATA%\npm\node_modules\bun"
+if exist "%APPDATA%\npm\bun" del /f /q "%APPDATA%\npm\bun"
+if exist "%APPDATA%\npm\bun.cmd" del /f /q "%APPDATA%\npm\bun.cmd"
+
+echo [NikaForge] Attempting install via npmmirror registry...
+call npm install -g bun --registry=https://registry.npmmirror.com
+if %ERRORLEVEL% equ 0 goto BUN_PATH_FIX
+
+echo [NikaForge] npmmirror install failed, trying official npm install...
 call npm install -g bun
-if %ERRORLEVEL% neq 0 goto INSTALL_BUN_SCRIPT
-goto BUN_PATH_FIX
+if %ERRORLEVEL% equ 0 goto BUN_PATH_FIX
 
 :INSTALL_BUN_SCRIPT
 echo [NikaForge] Warning: npm install bun failed. Trying official script...
@@ -56,6 +65,19 @@ powershell -c "irm bun.sh/install.ps1 | iex"
 
 :BUN_PATH_FIX
 set "PATH=%USERPROFILE%\.bun\bin;%APPDATA%\npm;%PATH%"
+call bun --version >nul 2>&1
+if %ERRORLEVEL% neq 0 (
+    echo ========================================================
+    echo [NikaForge] ERROR: Failed to install Bun environment!
+    echo [NikaForge] Bun is mandatory to run NikaForge backend.
+    echo [NikaForge] Please try:
+    echo 1. Run this script as Administrator.
+    echo 2. Download and install Bun manually from https://bun.sh
+    echo ========================================================
+    pause
+    exit /b 1
+)
+
 
 rem ================= 4. install dependencies
 :DEPENDENCIES
