@@ -1,0 +1,11 @@
+{
+    "display_name": "NikaForge IDE",
+    "loading_order": 9999,
+    "requires": [],
+    "optional": [],
+    "js": "index.js",
+    "css": "style.css",
+    "author": "Antigravity",
+    "version": "1.0.0",
+    "description": "依附于SillyTavern的浏览器AI IDE，支持实时查看、修改、创建角色卡 JSON"
+}

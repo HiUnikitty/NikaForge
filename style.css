@@ -1,0 +1,37 @@
+/* NikaForge SillyTavern 宿主样式 */
+
+.NikaForge-btn-row {
+    margin: 10px 0;
+}
+
+.NikaForge-menu-btn {
+    background: linear-gradient(135deg, #3b82f6, #1d4ed8);
+    color: white;
+    border: none;
+    padding: 10px 15px;
+    border-radius: 6px;
+    cursor: pointer;
+    font-weight: 600;
+    transition: all 0.2s ease;
+    width: 100%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
+    box-shadow: 0 4px 10px rgba(59, 130, 246, 0.2);
+}
+
+.NikaForge-menu-btn:hover {
+    background: linear-gradient(135deg, #2563eb, #1e40af);
+    transform: translateY(-1px);
+    box-shadow: 0 6px 15px rgba(59, 130, 246, 0.3);
+}
+
+.NikaForge-menu-btn:active {
+    transform: translateY(0);
+}
+
+/* 全屏 Overlay 样式 */
+#NikaForge-overlay {
+    transition: opacity 0.25s ease;
+}

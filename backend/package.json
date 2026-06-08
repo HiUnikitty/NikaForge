@@ -1,0 +1,15 @@
+{
+  "name": "NikaForge-backend",
+  "version": "1.0.0",
+  "type": "module",
+  "scripts": {
+    "dev": "bun run --watch server.ts",
+    "start": "bun run server.ts"
+  },
+  "dependencies": {
+    "glob": "^11.0.0"
+  },
+  "devDependencies": {
+    "bun-types": "^1.3.14"
+  }
+}
