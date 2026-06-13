@@ -198,9 +198,22 @@ export const CreateCharacterTool: Tool = {
               "markdownOnly": true,
               "promptOnly": false,
               "runOnEdit": true,
-              "substituteRegex": 0,
-              "minDepth": null,
-              "maxDepth": null
+              "substituteRegex": 0
+            },
+            {
+              "id": "nf-page-cleaner-" + Date.now(),
+              "scriptName": "去除多余提示词",
+              "findRegex": "by妮卡工坊",
+              "replaceString": "",
+              "trimStrings": [],
+              "placement": [
+                2
+              ],
+              "disabled": false,
+              "markdownOnly": false,
+              "promptOnly": true,
+              "runOnEdit": true,
+              "substituteRegex": 0
             }
           ]
         }

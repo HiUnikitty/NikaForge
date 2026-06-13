@@ -103,7 +103,7 @@ export const FileReadTool: Tool = {
         : '';
         
       if (totalLines > offset + limit) {
-         rangeInfo += `\n\n【警告】: 文件内容过长！为防止 Token 超限，已自动截断在最大允许行数（${MAX_LINES_NO_RANGE} 行）。请利用 offset 和 limit 参数分块阅读，或者使用 Grep 工具针对性搜索！`;
+         rangeInfo += `\n\n【警告】: 文件内容过长（共 ${totalLines} 行，当前仅显示第 ${offset + 1} 到 ${offset + limit} 行，还剩 ${totalLines - (offset + limit)} 行未显示）。为防止 Token 爆炸，已自动截断！\n【建议】: 若要继续读取下一页，请在下一次工具调用中指定 offset: ${offset + limit + 1}，且保持 limit 参数。`;
       }
 
       return {

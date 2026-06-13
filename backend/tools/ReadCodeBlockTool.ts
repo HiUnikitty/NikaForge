@@ -47,7 +47,7 @@ export const ReadCodeBlockTool: Tool = {
           const numberedLines = selectedLines.map((line, i) => `${offset + i + 1}: ${line}`).join('\n');
           output = `字段 "${key}" 的内容 (共 ${totalLines} 行，当前显示 ${offset + 1}-${Math.min(offset + limit, totalLines)} 行):\n\n${numberedLines}`;
           if (totalLines > offset + limit) {
-            output += `\n\n【警告】: 内容过长（还剩 ${totalLines - (offset + limit)} 行未显示）。为保护 Token，已强制截断。请使用 offset/limit 分块读取，或使用 GrepCodeBlock 搜索内容！`;
+            output += `\n\n【警告】: 内容过长（共 ${totalLines} 行，当前仅显示第 ${offset + 1} 到 ${offset + limit} 行，还剩 ${totalLines - (offset + limit)} 行未显示）。为防止 Token 爆炸，已强制截断！\n【建议】: 若要继续读取下一页，请在下一次工具调用中指定 offset: ${offset + limit + 1}，且保持 limit 参数。`;
           }
         } else {
           output = `字段 "${key}" 的内容 (非纯字符串):\n\n${JSON.stringify(current, null, 2)}`;
@@ -108,7 +108,7 @@ export const ReadCodeBlockTool: Tool = {
 
       let finalOutput = `字段 "${targetBlock.key}" 的物理展开代码块 [${targetBlock.rawLangLabel.toUpperCase()}] (共 ${totalLines} 行，当前显示 ${offset + 1}-${Math.min(offset + limit, totalLines)} 行):\n` + numberedCode;
       if (totalLines > offset + limit) {
-        finalOutput += `\n\n【警告】: 内容过长，已强制截断以保护 Token！请传入 offset 和 limit 分页读取，或使用 GrepCodeBlock 搜索内容。`;
+        finalOutput += `\n\n【警告】: 内容过长（共 ${totalLines} 行，当前仅显示第 ${offset + 1} 到 ${offset + limit} 行，还剩 ${totalLines - (offset + limit)} 行未显示）。为防止 Token 爆炸，已强制截断！\n【建议】: 若要继续读取下一页，请在下一次工具调用中指定 offset: ${offset + limit + 1}，且保持 limit 参数。`;
       }
       return { success: true, output: finalOutput };
     } catch (err: any) {

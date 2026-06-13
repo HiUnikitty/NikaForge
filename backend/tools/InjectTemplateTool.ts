@@ -179,10 +179,24 @@ export const InjectTemplateTool: Tool = {
         markdownOnly: true,
         promptOnly: false,
         runOnEdit: true,
-        substituteRegex: false
+        substituteRegex: 0
+      };
+
+      const cleanRegex = {
+        scriptName: "去除多余提示词",
+        findRegex: "by妮卡工坊",
+        replaceString: "",
+        trimStrings: [],
+        placement: [2],
+        disabled: false,
+        markdownOnly: false,
+        promptOnly: true,
+        runOnEdit: true,
+        substituteRegex: 0
       };
 
       dataNode.extensions.regex_scripts.unshift(newRegex);
+      dataNode.extensions.regex_scripts.push(cleanRegex);
 
       if (!context.fileHistory.has(filePath)) {
         context.fileHistory.set(filePath, []);

@@ -1935,8 +1935,14 @@
                 </div>
                 <div class="form-group">
                     <label>最大上下文 (tokens)</label>
-                    <input type="number" id="max-context" class="form-control" placeholder="1000000" min="100000"
-                        max="10000000" step="100000">
+                    <input type="number" id="max-context" class="form-control" placeholder="1000000">
+                </div>
+                <div class="form-group">
+                    <label>触发修剪阈值 (tokens)</label>
+                    <input type="number" id="trim-threshold" class="form-control" placeholder="例如: 95000">
+                    <span style="font-size: 11px; color: var(--text-secondary); line-height: 1.3;">
+                        Prompt 达到此 Token 数时触发修剪。留空则默认为：最大上下文 - 3000。
+                    </span>
                 </div>
             </div>
 
@@ -2210,6 +2216,7 @@
                 this.baseUrl = baseUrl;
                 this.alive = false;
                 this._checking = false;
+                this._failedCount = 0;
                 this.checkHealth(true, true);
                 // Heartbeat every 30s
                 setInterval(() => this.checkHealth(), 30000);
@@ -2218,18 +2225,31 @@
                 if (this._checking && !force) return this.alive;
                 this._checking = true;
                 const wasAlive = this.alive;
+                let currentAlive = false;
                 try {
-                    const r = await fetch(`${this.baseUrl}/api/health`, { signal: AbortSignal.timeout(1500) });
+                    const r = await fetch(`${this.baseUrl}/api/health`, { signal: AbortSignal.timeout(5000) });
                     const data = await r.json();
-                    this.alive = data.status === 'ok';
-                    if (this.alive) {
+                    currentAlive = data.status === 'ok';
+                    if (currentAlive) {
                         this.cwd = data.cwd;
-                        console.log('[NikaForge Backend] 已连接:', data.tools?.join(', '));
+                        if (!wasAlive && !isInit) {
+                            console.log('[NikaForge Backend] 已连接:', data.tools?.join(', '));
+                        }
                     }
                 } catch (e) {
-                    this.alive = false;
+                    currentAlive = false;
                 }
                 this._checking = false;
+
+                if (currentAlive) {
+                    this._failedCount = 0;
+                    this.alive = true;
+                } else {
+                    this._failedCount++;
+                    if (this._failedCount >= 2 || isInit || force) {
+                        this.alive = false;
+                    }
+                }
 
                 // 首次加载且未启动，进行错误弹窗提醒
                 if (!this.alive && isInit) {
@@ -2684,8 +2704,19 @@
             HARD_TRIM_BUFFER: 3_000,
         };
         function getEffectiveWindow(maxTokens) { return maxTokens - CONTEXT_CONFIG.RESERVED_OUTPUT_TOKENS; }
-        function getCompactThreshold(maxTokens) { return getEffectiveWindow(maxTokens) - CONTEXT_CONFIG.AUTO_COMPACT_BUFFER; }
-        function getHardTrimThreshold(maxTokens) { return maxTokens - CONTEXT_CONFIG.HARD_TRIM_BUFFER; }
+        function getHardTrimThreshold(maxTokens, trimThreshold) {
+            if (trimThreshold && trimThreshold > 0) {
+                return Math.min(maxTokens, trimThreshold);
+            }
+            return maxTokens - CONTEXT_CONFIG.HARD_TRIM_BUFFER;
+        }
+        function getCompactThreshold(maxTokens, trimThreshold) {
+            if (trimThreshold && trimThreshold > 0) {
+                const baseTrim = Math.min(maxTokens, trimThreshold);
+                return Math.max(0, baseTrim - 14000);
+            }
+            return getEffectiveWindow(maxTokens) - CONTEXT_CONFIG.AUTO_COMPACT_BUFFER;
+        }
 
         // --- Auto Design Logic ---
         class AutoDesignManager {
@@ -3051,20 +3082,15 @@ ${firstMesCode}
                 await this.addMessage('tool', result, null, toolCallId);
             }
 
-            /** Walk backwards from last API response, add estimates for newer messages */
-            tokenCountWithEstimation() {
+            /** 返回最后一次 API 返回的真实 prompt_tokens，不做任何估算 */
+            getLastPromptTokens() {
                 for (let i = this.messages.length - 1; i >= 0; i--) {
                     const msg = this.messages[i];
                     if (msg.role === 'assistant' && msg.usage && msg.usage.prompt_tokens) {
-                        const base = msg.usage.prompt_tokens;
-                        let est = 0;
-                        for (let j = i + 1; j < this.messages.length; j++) {
-                            est += Math.ceil((this.messages[j].content || '').length / 4);
-                        }
-                        return base + est;
+                        return msg.usage.prompt_tokens;
                     }
                 }
-                return this.messages.reduce((s, m) => s + Math.ceil((m.content || '').length / 4), 0);
+                return 0;
             }
 
             async buildFullSystemPrompt() {
@@ -3142,7 +3168,7 @@ ${firstMesCode}
 - **提示注入**: \`/inject\`, \`/listinjects\`, \`/flushinject\`
 - **世界书与条目操作**: \`/world\`, \`/getchatbook\`, \`/getglobalbooks\`, \`/getpersonabook\`, \`/getcharbook\`, \`/findentry\`, \`/getentryfield\`, \`/setentryfield\`, \`/createentry\`
 
-- **⚠️ 规避 $ 选择器冲突**: 酒馆内置全局 jQuery。为防 $ 被覆写抢占或 NodeList 缺乏 addEventListener/classList 导致界面白屏崩溃，**严禁直接使用全局 $ 或 $$**！你必须在脚本头部显式声明局部安全变量：\`const qs = s => document.querySelector(s); const qsa = s => document.querySelectorAll(s);\` 来替代 DOM 操作。
+- **⚠️ 规避 $ 冲突与被吞限制**: 酒馆内置全局 jQuery，**严禁直接使用全局 $ 或 $$**！必须在脚本头部声明：\`const qs = s => document.querySelector(s); const qsa = s => document.querySelectorAll(s);\` 来替代 DOM 操作。同时，因代码位于酒馆正则脚本的 \`replaceString\` 中，为防被酒馆正则机制二次解析，**严禁在代码的任何地方（包括字符串、注释、HTML 文本）直接书写字面量形式的 \`$1\`、\`$2\` 等 \`$\` 占位符**（它们在被酒馆加载时会被强行硬替换破坏）！如果需要正则替换，必须改用回调函数返回：\`str.replace(reg, (m, p1) => p1)\`；若必须使用相关字符串，必须用拼接绕过（如 \`'$\' + '1'\`）。
 
 ## 核心能力
 1. **文件操作**: 使用 Read/Write/Edit 读写文件。注意：Read 默认会截断 JSON 里的长文本（如角色卡 first_mes、世界书等）以省 token，如需读取完整长文本请加参数 truncate: false，或直接使用 ReadCodeBlock 读取嵌入代码块。
@@ -3240,18 +3266,25 @@ ${await this._buildCodeBlockContext()}`;
             }
 
             async readFile(path) {
-                if (!backend.isAlive()) {
-                    throw new Error('物理后端服务未启动(localhost:3456)！纯物理卡片模式下，必须启动后端服务才能读取文件。');
+                try {
+                    const r = await fetch(`${backend.baseUrl}/api/file?path=${encodeURIComponent(path)}`);
+                    if (!r.ok) {
+                        throw new Error(`物理读取文件失败: HTTP ${r.status}`);
+                    }
+                    const data = await r.json();
+                    if (!data.success) {
+                        throw new Error(data.error || '读取物理文件失败');
+                    }
+                    backend.alive = true;
+                    backend._failedCount = 0;
+                    return data.output;
+                } catch (err) {
+                    if (err.name === 'TypeError' || err.message.includes('fetch') || err.message.includes('NetworkError') || err.message.includes('Failed to fetch')) {
+                        backend.alive = false;
+                        throw new Error('物理后端服务未启动(localhost:3456)！纯物理卡片模式下，必须启动后端服务才能读取文件。');
+                    }
+                    throw err;
                 }
-                const r = await fetch(`${backend.baseUrl}/api/file?path=${encodeURIComponent(path)}`);
-                if (!r.ok) {
-                    throw new Error(`物理读取文件失败: HTTP ${r.status}`);
-                }
-                const data = await r.json();
-                if (!data.success) {
-                    throw new Error(data.error || '读取物理文件失败');
-                }
-                return data.output;
             }
 
             async writeFile(path, content) {
@@ -3259,52 +3292,73 @@ ${await this._buildCodeBlockContext()}`;
                     console.warn(`[NikaForge] 检测到处于加载中状态，拦截对 ${path} 的自动保存空覆盖`);
                     return;
                 }
-                if (!backend.isAlive()) {
-                    throw new Error('物理后端服务未启动(localhost:3456)！纯物理卡片模式下，必须启动后端服务才能保存文件。');
+                try {
+                    const r = await fetch(`${backend.baseUrl}/api/file`, {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ path, content })
+                    });
+                    if (!r.ok) {
+                        throw new Error(`物理写入文件失败: HTTP ${r.status}`);
+                    }
+                    const data = await r.json();
+                    if (!data.success) {
+                        throw new Error(data.error || '写入物理文件失败');
+                    }
+                    backend.alive = true;
+                    backend._failedCount = 0;
+                    if (window.app && !window.app._isSyncingCharacters) window.app.updateFileList();
+                } catch (err) {
+                    if (err.name === 'TypeError' || err.message.includes('fetch') || err.message.includes('NetworkError') || err.message.includes('Failed to fetch')) {
+                        backend.alive = false;
+                        throw new Error('物理后端服务未启动(localhost:3456)！纯物理卡片模式下，必须启动后端服务才能保存文件。');
+                    }
+                    throw err;
                 }
-                const r = await fetch(`${backend.baseUrl}/api/file`, {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ path, content })
-                });
-                if (!r.ok) {
-                    throw new Error(`物理写入文件失败: HTTP ${r.status}`);
-                }
-                const data = await r.json();
-                if (!data.success) {
-                    throw new Error(data.error || '写入物理文件失败');
-                }
-                if (window.app && !window.app._isSyncingCharacters) window.app.updateFileList();
             }
 
             async listFiles() {
-                if (!backend.isAlive()) {
-                    throw new Error('物理后端服务未启动(localhost:3456)！纯物理卡片模式下，必须启动后端服务才能获取列表。');
+                try {
+                    const r = await fetch(`${backend.baseUrl}/api/files/list`);
+                    if (!r.ok) {
+                        throw new Error(`物理列出文件失败: HTTP ${r.status}`);
+                    }
+                    const data = await r.json();
+                    if (!data.files) {
+                        throw new Error('未获取到物理文件列表');
+                    }
+                    backend.alive = true;
+                    backend._failedCount = 0;
+                    return data.files;
+                } catch (err) {
+                    if (err.name === 'TypeError' || err.message.includes('fetch') || err.message.includes('NetworkError') || err.message.includes('Failed to fetch')) {
+                        backend.alive = false;
+                        throw new Error('物理后端服务未启动(localhost:3456)！纯物理卡片模式下，必须启动后端服务才能获取列表。');
+                    }
+                    throw err;
                 }
-                const r = await fetch(`${backend.baseUrl}/api/files/list`);
-                if (!r.ok) {
-                    throw new Error(`物理列出文件失败: HTTP ${r.status}`);
-                }
-                const data = await r.json();
-                if (!data.files) {
-                    throw new Error('未获取到物理文件列表');
-                }
-                return data.files;
             }
 
             async deleteFile(path) {
-                if (!backend.isAlive()) {
-                    throw new Error('物理后端服务未启动(localhost:3456)！纯物理卡片模式下，必须启动后端服务才能删除文件。');
+                try {
+                    const r = await fetch(`${backend.baseUrl}/api/file/delete`, {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ path })
+                    });
+                    if (!r.ok) {
+                        throw new Error(`物理删除文件失败: HTTP ${r.status}`);
+                    }
+                    backend.alive = true;
+                    backend._failedCount = 0;
+                    if (window.app && !window.app._isSyncingCharacters) window.app.updateFileList();
+                } catch (err) {
+                    if (err.name === 'TypeError' || err.message.includes('fetch') || err.message.includes('NetworkError') || err.message.includes('Failed to fetch')) {
+                        backend.alive = false;
+                        throw new Error('物理后端服务未启动(localhost:3456)！纯物理卡片模式下，必须启动后端服务才能删除文件。');
+                    }
+                    throw err;
                 }
-                const r = await fetch(`${backend.baseUrl}/api/file/delete`, {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ path })
-                });
-                if (!r.ok) {
-                    throw new Error(`物理删除文件失败: HTTP ${r.status}`);
-                }
-                if (window.app && !window.app._isSyncingCharacters) window.app.updateFileList();
             }
 
             // 更新最后一条 assistant 消息的内联 diff 数据，用于持久化“写入/编辑状态栏”
@@ -3841,6 +3895,7 @@ ${await this._buildCodeBlockContext()}`;
                                 if (f.startsWith('NikaForge_json_cache/') && f.endsWith('.json')) {
                                     try {
                                         const localContent = await this.fs.readFile(f);
+                                        await new Promise(r => setTimeout(r, 10)); // 缓释并发压力
                                         if (localContent) {
                                             const localData = JSON.parse(localContent);
                                             const avatarUrl = localData._avatar_url || (localData.data && localData.data._avatar_url);
@@ -3863,17 +3918,23 @@ ${await this._buildCodeBlockContext()}`;
                                     const safeName = char.avatar.replace(/\.[^/.]+$/, "") || charData.name;
                                     const filepath = `NikaForge_json_cache/${safeName}.json`;
 
-                                    // 如果本地已经有该角色卡的 JSON，我们不强制覆盖，防止在页面刷新/切换时丢失用户本地的最新修改
+                                    // 比对本地已有的角色卡 JSON，如果内容与酒馆当前数据完全一致则跳过，
+                                    // 否则（如在酒馆中编辑过）进行覆盖写入，以保证每次进入妮卡工坊时与 PNG 保持同步
                                     try {
                                         const localContent = await this.fs.readFile(filepath);
+                                        await new Promise(r => setTimeout(r, 10)); // 缓释并发压力
                                         if (localContent) {
-                                            continue;
+                                            const localData = JSON.parse(localContent);
+                                            if (JSON.stringify(localData) === JSON.stringify(charData)) {
+                                                continue;
+                                            }
                                         }
                                     } catch (e) {
-                                        // 文件不存在，则写入
+                                        // 文件不存在或解析失败，则写入
                                     }
 
                                     await this.fs.writeFile(filepath, JSON.stringify(charData, null, 4));
+                                    await new Promise(r => setTimeout(r, 15)); // 缓释写操作并发压力
                                 }
                             }
                         } else {
@@ -4707,14 +4768,18 @@ ${await this._buildCodeBlockContext()}`;
 
             /** Estimate tokens for a text string */
             estimateTokens(str) {
-                return Math.ceil((str || '').length / 4);
+                if (!str) return 0;
+                const chineseChars = (str.match(/[\u4e00-\u9fa5]/g) || []).length;
+                const otherChars = str.length - chineseChars;
+                return Math.ceil(chineseChars * 1.5 + otherChars / 4);
             },
 
             /** Update the context ring */
             updateContextBar() {
                 const settings = JSON.parse(localStorage.getItem('NikaForge_settings') || '{}');
                 const maxTokens = parseInt(settings.maxContext) || CONTEXT_CONFIG.MAX_CONTEXT_TOKENS;
-                const used = this.context.tokenCountWithEstimation();
+                const trimThreshold = parseInt(settings.trimThreshold) || 0;
+                const used = this.context.getLastPromptTokens();
                 const pct = Math.min(100, Math.round((used / maxTokens) * 100));
                 const ring = document.getElementById('contextRing');
                 if (ring) {
@@ -4726,7 +4791,11 @@ ${await this._buildCodeBlockContext()}`;
                 const detailEl = document.getElementById('contextDetail');
                 if (detailEl && detailEl.dataset.expanded === 'true') {
                     const fmt = n => n >= 1_000_000 ? (n / 1_000_000).toFixed(1) + 'M' : n >= 1_000 ? Math.round(n / 1_000) + 'K' : String(n);
-                    detailEl.textContent = `${fmt(used)} / ${fmt(maxTokens)} (${pct}%)`;
+                    if (trimThreshold > 0) {
+                        detailEl.textContent = `${fmt(used)} / ${fmt(maxTokens)} (阈值: ${fmt(trimThreshold)}) (${pct}%)`;
+                    } else {
+                        detailEl.textContent = `${fmt(used)} / ${fmt(maxTokens)} (${pct}%)`;
+                    }
                 }
             },
 
@@ -4734,7 +4803,8 @@ ${await this._buildCodeBlockContext()}`;
             showContextDetail() {
                 const settings = JSON.parse(localStorage.getItem('NikaForge_settings') || '{}');
                 const maxTokens = parseInt(settings.maxContext) || CONTEXT_CONFIG.MAX_CONTEXT_TOKENS;
-                const used = this.context.tokenCountWithEstimation();
+                const trimThreshold = parseInt(settings.trimThreshold) || 0;
+                const used = this.context.getLastPromptTokens();
                 const pct = Math.min(100, Math.round((used / maxTokens) * 100));
                 const fmt = n => n >= 1_000_000 ? (n / 1_000_000).toFixed(1) + 'M' : n >= 1_000 ? Math.round(n / 1_000) + 'K' : String(n);
                 const el = document.getElementById('contextDetail');
@@ -4750,7 +4820,11 @@ ${await this._buildCodeBlockContext()}`;
                     el.textContent = '';
                     el.dataset.expanded = 'false';
                 } else {
-                    el.textContent = `${fmt(used)} / ${fmt(maxTokens)} (${pct}%)`;
+                    if (trimThreshold > 0) {
+                        el.textContent = `${fmt(used)} / ${fmt(maxTokens)} (阈值: ${fmt(trimThreshold)}) (${pct}%)`;
+                    } else {
+                        el.textContent = `${fmt(used)} / ${fmt(maxTokens)} (${pct}%)`;
+                    }
                     el.dataset.expanded = 'true';
                 }
             },
@@ -6077,6 +6151,7 @@ ${await this._buildCodeBlockContext()}`;
                         { role: 'system', content: `[Compacted summary of earlier conversation]\n${summary}` },
                         ...toKeep
                     ];
+
                     // Persist
                     await this.fs.clearChatHistory();
                     for (const m of this.context.messages) {
@@ -6088,12 +6163,36 @@ ${await this._buildCodeBlockContext()}`;
                 }
             },
 
-            /** Hard trim: remove oldest message pairs until under hard trim threshold */
-            async hardTrim(maxTokens) {
+            /** Hard trim: 基于 API 返回的真实 prompt_tokens 裁减最老的消息对 */
+            async hardTrim(maxTokens, currentTokens, lastUsage = null) {
+                const settings = JSON.parse(localStorage.getItem('NikaForge_settings') || '{}');
+                const trimThreshold = parseInt(settings.trimThreshold) || 0;
+                const threshold = getHardTrimThreshold(maxTokens, trimThreshold);
+
+                // 预判下一次回复的 token (这次的 completion_tokens 的 1.25 倍，且至少为 2000，若没有则默认为 4000)
+                let predictedResponse = 4000;
+                if (lastUsage && typeof lastUsage.completion_tokens === 'number') {
+                    predictedResponse = Math.max(2000, Math.ceil(lastUsage.completion_tokens * 1.25));
+                }
+
+                // 目标修剪额 = 当前估算 context tokens + 预估下一次回复 tokens + 1000 (用户输入 buffer) - 触发阈值
+                const targetRemoval = currentTokens + predictedResponse + 1000 - threshold;
+                if (targetRemoval <= 0) return;
+
+                let estimatedRemoved = 0;
                 let safety = 0;
-                while (this.context.tokenCountWithEstimation() > getHardTrimThreshold(maxTokens) && this.context.messages.length > 4 && safety < 20) {
+                while (estimatedRemoved < targetRemoval && this.context.messages.length > 4 && safety < 30) {
                     // Remove the oldest 2 messages (a user+assistant pair or similar)
                     const removed = this.context.messages.splice(0, 2);
+                    for (const m of removed) {
+                        estimatedRemoved += app.estimateTokens(m.content);
+                        if (m.tool_calls) {
+                            for (const tc of m.tool_calls) {
+                                estimatedRemoved += app.estimateTokens(tc.function?.arguments);
+                            }
+                        }
+                        if (m.reasoning_content) estimatedRemoved += app.estimateTokens(m.reasoning_content);
+                    }
                     // If removed messages had tool_calls, also remove orphaned tool results
                     for (const r of removed) {
                         if (r.role === 'assistant' && r.tool_calls && r.tool_calls.length > 0) {
@@ -6101,7 +6200,8 @@ ${await this._buildCodeBlockContext()}`;
                             while (this.context.messages.length > 0 &&
                                 this.context.messages[0].role === 'tool' &&
                                 callIds.has(this.context.messages[0].tool_call_id)) {
-                                this.context.messages.splice(0, 1);
+                                const toolMsg = this.context.messages.splice(0, 1)[0];
+                                estimatedRemoved += app.estimateTokens(toolMsg.content);
                             }
                         }
                     }
@@ -6123,14 +6223,24 @@ ${await this._buildCodeBlockContext()}`;
                 // 监听聊天容器滚动以实时高亮右侧定位圆点
                 const chatMessages = document.getElementById('chat-messages');
                 if (chatMessages) {
+                    let lastScrollTop = chatMessages.scrollTop || 0;
                     chatMessages.addEventListener('scroll', () => {
                         this.syncActiveNavDot();
+                        const currentScrollTop = chatMessages.scrollTop;
                         if (this._isGenerating) {
-                            const isAtBottom = chatMessages.scrollTop + chatMessages.clientHeight >= chatMessages.scrollHeight - 50;
-                            this._userScrolledUp = !isAtBottom;
+                            const isAtBottom = currentScrollTop + chatMessages.clientHeight >= chatMessages.scrollHeight - 20;
+                            // 仅当滚动位置往上移动（减小）且未到底部时，判定为用户手动向上翻看，防止新消息插入或向下滚动过程中误判
+                            if (currentScrollTop < lastScrollTop) {
+                                if (!isAtBottom) {
+                                    this._userScrolledUp = true;
+                                }
+                            } else if (isAtBottom) {
+                                this._userScrolledUp = false; // 回到底部时自动恢复跟随
+                            }
                         } else {
                             this._userScrolledUp = false;
                         }
+                        lastScrollTop = currentScrollTop;
                     });
                 }
 
@@ -6666,8 +6776,8 @@ ${await this._buildCodeBlockContext()}`;
                     return;
                 }
 
-                // 强行实时刷新一次后端连接状态，如果没连上，直接弹窗拦截并阻断消息发送
-                await backend.checkHealth(true);
+                // 仅进行温和的连接状态检查，避免并发冲突
+                await backend.checkHealth();
                 if (!backend.isAlive()) {
                     const parentWindow = window.parent;
                     const alertMsg = `⚠️ NikaForge 物理后端服务未启动！\n请先在本地终端启动 Bun 服务（运行 start.bat），否则无法发送消息或与 AI 交互。`;
@@ -6680,9 +6790,15 @@ ${await this._buildCodeBlockContext()}`;
                 }
 
                 this._isGenerating = true;
+                this._userScrolledUp = false;
+                this.scrollToBottom();
                 this.updateSendButtonState();
 
                 try {
+                    let aiMsgId = null;
+                    let fullContent = '';
+                    let fullReasoning = '';
+                    let streamedToolCalls = [];
                     const userMsgId = 'user-msg-' + Date.now() + '-' + Math.random().toString(36).slice(2, 6);
 
                     // 收集当前粘贴/拖入的图片卡片数据
@@ -6753,19 +6869,10 @@ ${await this._buildCodeBlockContext()}`;
                     } catch (e) { }
                     // ---
 
-                    // --- Auto context management (before API call) ---
-                    const maxTokens = parseInt(settings.maxContext) || CONTEXT_CONFIG.MAX_CONTEXT_TOKENS;
-                    const used = this.context.tokenCountWithEstimation();
-                    if (used > getHardTrimThreshold(maxTokens)) {
-                        await this.hardTrim(maxTokens);
-                    } else if (used > getCompactThreshold(maxTokens)) {
-                        await this.compactConversation(settings, maxTokens);
-                    }
-                    this.updateContextBar();
-                    // ---
-
                     let consecutiveEmptyResponses = 0;
                     while (true) {
+                        const maxTokens = parseInt(settings.maxContext) || CONTEXT_CONFIG.MAX_CONTEXT_TOKENS;
+
                         if (!this._isGenerating) {
                             this.addMessage('system', '已响应用户的停止指令，终止后续工具调用。');
                             break;
@@ -6877,36 +6984,74 @@ ${await this._buildCodeBlockContext()}`;
                             return result;
                         };
 
-                        const messages = sanitizeMessages([
-                            { role: 'system', content: systemPrompt },
-                            ...this.context.getHistory()
-                        ]);
+                        // 准备历史记录的临时拷贝，以便在不影响真实历史记录和快照的前提下对发包 Payload 进行截断
+                        let historyCopy = [...this.context.getHistory()];
 
-                        // 如果本次发送包含粘贴/拖入的图片，将最新的一包 user 消息升舱为标准多模态数组结构（深/浅拷贝新对象，彻底斩断对内存 context 的引用污染）
-                        if (activeImages.length > 0) {
-                            const lastIdx = messages.length - 1;
-                            if (lastIdx >= 0 && messages[lastIdx] && messages[lastIdx].role === 'user') {
-                                messages[lastIdx] = {
-                                    ...messages[lastIdx],
-                                    content: [
-                                        { type: 'text', text: messages[lastIdx].content },
-                                        ...activeImages.map(img => ({
-                                            type: 'image_url',
-                                            image_url: { url: `data:${img.mime};base64,${img.base64}` }
-                                        }))
-                                    ]
-                                };
+                        const buildMessagesPayload = (hist) => {
+                            const raw = [
+                                { role: 'system', content: systemPrompt },
+                                ...hist
+                            ];
+                            const msgs = sanitizeMessages(raw);
+                            if (activeImages.length > 0) {
+                                const lastIdx = msgs.length - 1;
+                                if (lastIdx >= 0 && msgs[lastIdx] && msgs[lastIdx].role === 'user') {
+                                    msgs[lastIdx] = {
+                                        ...msgs[lastIdx],
+                                        content: [
+                                            { type: 'text', text: msgs[lastIdx].content },
+                                            ...activeImages.map(img => ({
+                                                type: 'image_url',
+                                                image_url: { url: `data:${img.mime};base64,${img.base64}` }
+                                            }))
+                                        ]
+                                    };
+                                }
                             }
+                            return msgs;
+                        };
+
+                        const estimatePayloadTokens = (msgs) => {
+                            let total = 0;
+                            for (const msg of msgs) {
+                                if (typeof msg.content === 'string') {
+                                    total += app.estimateTokens(msg.content);
+                                } else if (Array.isArray(msg.content)) {
+                                    for (const part of msg.content) {
+                                        if (part.type === 'text') {
+                                            total += app.estimateTokens(part.text);
+                                        } else if (part.type === 'image_url') {
+                                            total += 1000;
+                                        }
+                                    }
+                                }
+                                if (msg.tool_calls) {
+                                    for (const tc of msg.tool_calls) {
+                                        total += app.estimateTokens(tc.function.arguments);
+                                        total += app.estimateTokens(tc.function.name);
+                                    }
+                                }
+                            }
+                            return total;
+                        };
+
+                        let messages = buildMessagesPayload(historyCopy);
+                        const targetLimit = maxTokens * 0.92;
+                        let safety = 0;
+                        while (historyCopy.length > 0 && estimatePayloadTokens(messages) > targetLimit && safety < 1000) {
+                            historyCopy.shift();
+                            messages = buildMessagesPayload(historyCopy);
+                            safety++;
                         }
 
-                        const aiMsgId = 'ai-' + Date.now();
+                        aiMsgId = 'ai-' + Date.now();
                         // 高级感思考占位符
                         this.addMessage('assistant', `正在思考<div class="thinking-dots"><span></span><span></span><span></span></div>`, aiMsgId, false);
                         document.getElementById(aiMsgId).classList.add('thinking');
 
-                        let fullContent = '';
-                        let fullReasoning = '';
-                        let streamedToolCalls = [];
+                        fullContent = '';
+                        fullReasoning = '';
+                        streamedToolCalls = [];
                         let lastUsage = null;
                         let isLengthTruncated = false;
                         let sseBuffer = ''; // 跨chunk的SSE行缓冲区（参照opencode的SSE framing）
@@ -7081,6 +7226,19 @@ ${await this._buildCodeBlockContext()}`;
                             this.context.addMessage('assistant', fullContent, finalToolCalls, null, fullReasoning, lastUsage);
                             this.updateContextBar();
 
+                            // ★ 基于 API 返回的真实 usage.prompt_tokens 以及生成的 completion_tokens 进行上下文管控预判
+                            if (lastUsage && lastUsage.prompt_tokens) {
+                                const realTokens = lastUsage.prompt_tokens;
+                                const completionTokens = lastUsage.completion_tokens || 0;
+                                const estimatedNextPrompt = realTokens + completionTokens;
+                                const trimThreshold = parseInt(settings.trimThreshold) || 0;
+                                if (estimatedNextPrompt > getHardTrimThreshold(maxTokens, trimThreshold)) {
+                                    await this.hardTrim(maxTokens, estimatedNextPrompt, lastUsage);
+                                } else if (estimatedNextPrompt > getCompactThreshold(maxTokens, trimThreshold)) {
+                                    await this.compactConversation(settings, maxTokens);
+                                }
+                            }
+
                             // 保存到数据库
                             this._currentAiMsgDbId = await this.fs.saveChatMessage({
                                 role: 'assistant',
@@ -7111,20 +7269,73 @@ ${await this._buildCodeBlockContext()}`;
                                 for (const toolCall of finalToolCalls) {
                                     const toolName = toolCall.function.name;
                                     const toolId = `tool-${toolCall.id}`;
-                                    const TOOL_CN_MAP = {
-                                        'Read': '读取文件', 'Write': '写入文件', 'Edit': '编辑代码', 'Bash': '执行命令',
-                                        'Glob': '浏览目录', 'Grep': '搜索内容',
-                                        'InjectTemplate': '读取模板', 'WriteCodeBlock': '生成代码', 'CreateCharacter': '创建角色',
-                                        'CheckCodeBlock': '检查代码', 'ReadCodeBlock': '读取代码块', 'EditCodeBlock': '编辑代码块',
-                                        'GrepCodeBlock': '搜索代码块'
+
+                                    let args = {};
+                                    try {
+                                        const rawStr = typeof toolCall.function.arguments === 'string' ? (toolCall.function.arguments.trim() || '{}') : JSON.stringify(toolCall.function.arguments || {});
+                                        args = JSON.parse(rawStr);
+                                    } catch (e) { }
+
+                                    const getBasename = (p) => {
+                                        if (!p) return '';
+                                        const parts = p.split(/[/\\]/);
+                                        return parts[parts.length - 1];
                                     };
-                                    const cnName = TOOL_CN_MAP[toolName] || toolName;
+
+                                    const getToolActionDesc = (name, args, status) => {
+                                        const filePath = args.path || args.file_path || '';
+                                        const fileName = getBasename(filePath);
+                                        const key = args.key || '';
+                                        const pattern = args.pattern || '';
+                                        const command = args.command || '';
+                                        const charName = args.name || '';
+
+                                        let prefix = '正在';
+                                        if (status === 'success') prefix = '已';
+                                        if (status === 'error') prefix = '未能';
+
+                                        const TOOL_DESC_MAP = {
+                                            'Read': () => `${prefix}读取文件 "${fileName}"`,
+                                            'Write': () => `${prefix}写入文件 "${fileName}"`,
+                                            'Edit': () => `${prefix}编辑文件 "${fileName}"`,
+                                            'Bash': () => `${prefix}执行命令 "${command.length > 30 ? command.substring(0, 30) + '...' : command}"`,
+                                            'Glob': () => `${prefix}浏览目录 "${pattern}"`,
+                                            'Grep': () => `${prefix}搜索关键字 "${pattern}"`,
+                                            'InjectTemplate': () => `${prefix}注入模板至 "${fileName}"`,
+                                            'WriteCodeBlock': () => `${prefix}完全覆写 "${fileName}" 中的 "${key}" 代码块`,
+                                            'CreateCharacter': () => `${prefix}创建角色卡 "${charName}"`,
+                                            'CheckCodeBlock': () => `${prefix}检查 "${fileName}" 中的 "${key}" 代码块语法`,
+                                            'ReadCodeBlock': () => `${prefix}读取 "${fileName}" 中的 "${key || '所有'}" 代码块`,
+                                            'EditCodeBlock': () => `${prefix}编辑 "${fileName}" 中的 "${key}" 代码块`,
+                                            'GrepCodeBlock': () => `${prefix}在 "${fileName}" 代码块中搜索 "${pattern}"`
+                                        };
+
+                                        const TOOL_NAME_MAP = {
+                                            'read': 'Read', 'write': 'Write', 'edit': 'Edit', 'bash': 'Bash',
+                                            'glob': 'Glob', 'grep': 'Grep',
+                                            'str_replace_editor': 'Edit', 'str_replace_based_edit_tool': 'Edit',
+                                            'create_file': 'Write', 'write_file': 'Write', 'read_file': 'Read',
+                                            'execute_bash': 'Bash', 'run_bash': 'Bash', 'shell': 'Bash',
+                                            'injecttemplate': 'InjectTemplate', 'writefilecodeblock': 'WriteCodeBlock',
+                                            'writecodeblock': 'WriteCodeBlock', 'createcharacter': 'CreateCharacter',
+                                            'checkcodeblock': 'CheckCodeBlock', 'readcodeblock': 'ReadCodeBlock',
+                                            'editcodeblock': 'EditCodeBlock', 'grepcodeblock': 'GrepCodeBlock'
+                                        };
+
+                                        const stdName = TOOL_NAME_MAP[name.toLowerCase()] || name;
+                                        if (TOOL_DESC_MAP[stdName]) {
+                                            return TOOL_DESC_MAP[stdName]();
+                                        }
+                                        return `${prefix}执行工具 "${name}"`;
+                                    };
 
                                     // 收起之前所有已完成的工具详情
                                     document.querySelectorAll('.tool-result-details').forEach(el => el.removeAttribute('open'));
 
+                                    const pendingLabel = getToolActionDesc(toolName, args, 'pending');
+
                                     // 2. 调用执行前显示正在xxx
-                                    this.addMessage('tool', `<div style="color: var(--text-secondary); display: flex; align-items: center; gap: 8px; font-size: 13px;"><div id="tool-status-${toolId}" style="width:5px;height:5px;border-radius:50%;background:#888;flex-shrink:0;"></div>正在${cnName}...</div>`, toolId, false);
+                                    this.addMessage('tool', `<div style="color: var(--text-secondary); display: flex; align-items: center; gap: 8px; font-size: 13px;"><div id="tool-status-${toolId}" style="width:5px;height:5px;border-radius:50%;background:#888;flex-shrink:0;"></div>${pendingLabel}...</div>`, toolId, false);
 
                                     // 强制工具消息靠左对齐，去除默认系统消息的居中效果
                                     const toolDiv = document.getElementById(toolId);
@@ -7145,7 +7356,7 @@ ${await this._buildCodeBlockContext()}`;
                                         if (cDiv) {
                                             const escapeHtml = (unsafe) => (unsafe || '').toString().replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
                                             const isError = typeof result === 'string' && (result.startsWith('错误') || result.startsWith('Error') || result.startsWith('工具执行失败') || result.includes('失败') || result.startsWith('✗'));
-                                            const doneLabel = isError ? `未${cnName}` : `已${cnName}`;
+                                            const doneLabel = getToolActionDesc(toolName, args, isError ? 'error' : 'success');
                                             cDiv.innerHTML = `
                                                 <details class="tool-result-details" style="margin: 0;" open>
                                                     <summary style="padding: 4px 0; cursor: pointer; font-size: 12px; font-weight: 400; user-select: none; color: var(--text-secondary); opacity: 0.7; transition: opacity 0.2s;">
@@ -7157,7 +7368,9 @@ ${await this._buildCodeBlockContext()}`;
                                                 </details>
                                             `;
                                             if (window.lucide) lucide.createIcons({ element: cDiv });
-                                            this.scrollToBottom();
+                                            if (!this._userScrolledUp) {
+                                                this.scrollToBottom();
+                                            }
                                         }
                                     }
 
@@ -7226,8 +7439,18 @@ ${await this._buildCodeBlockContext()}`;
                                     if (!fullContent && !fullReasoning && streamedToolCalls.length === 0) {
                                         placeholder.remove();
                                     } else {
-                                        placeholder.classList.remove('thinking');
-                                        this.updateMessage(aiMsgId, `<div style="display:flex;align-items:center;gap:8px;color:#888;font-size:0.9em;font-style:italic;margin-top:10px;"><div style="width:5px;height:5px;border-radius:50%;background:#888;flex-shrink:0;"></div>正在${allToolNames.join('，')}...</div>`, fullReasoning);
+                                        const names = (streamedToolCalls || []).map(tc => {
+                                            const TOOL_CN_MAP = {
+                                                'Read': '读取文件', 'Write': '写入文件', 'Edit': '编辑代码', 'Bash': '执行命令',
+                                                'Glob': '浏览目录', 'Grep': '搜索内容',
+                                                'InjectTemplate': '读取模板', 'WriteCodeBlock': '生成代码', 'CreateCharacter': '创建角色',
+                                                'CheckCodeBlock': '检查代码', 'ReadCodeBlock': '读取代码块', 'EditCodeBlock': '编辑代码块',
+                                                'GrepCodeBlock': '搜索代码块'
+                                            };
+                                            return TOOL_CN_MAP[tc.function.name] || tc.function.name;
+                                        }).filter(Boolean);
+                                        const namesStr = names.length > 0 ? names.join('，') : '处理';
+                                        this.updateMessage(aiMsgId, `<div style="display:flex;align-items:center;gap:8px;color:#888;font-size:0.9em;font-style:italic;margin-top:10px;"><div style="width:5px;height:5px;border-radius:50%;background:#888;flex-shrink:0;"></div>正在${namesStr}...</div>`, fullReasoning);
                                         this.context.addMessage('assistant', fullContent, streamedToolCalls.length > 0 ? streamedToolCalls : null, null, fullReasoning, lastUsage);
                                         await this.fs.saveChatMessage({
                                             role: 'assistant',
@@ -7357,8 +7580,8 @@ ${await this._buildCodeBlockContext()}`;
                 }
                 // this.terminal.term.writeln(`\x1b[36m>> 正在执行工具 ${name}: ${JSON.stringify(args)}\x1b[0m`);
 
-                // 在执行任何工具前，实时刷新后端连接状态，确保状态准确
-                await backend.checkHealth(true);
+                // 仅进行温和的连接状态检查，避免并发冲突
+                await backend.checkHealth();
 
                 // 物理修改/写操作/检索等工具，强依赖后端。如果未存活，必须弹窗拦截并阻断
                 const physicalTools = ['Write', 'Edit', 'Bash', 'Grep', 'EditCodeBlock', 'WriteCodeBlock', 'CreateCharacter'];
@@ -7405,8 +7628,19 @@ ${await this._buildCodeBlockContext()}`;
                             }
 
                             if (content === undefined) return `错误: 文件 ${args.path} 不存在`;
-                            // 模拟带行号的读取 (复刻 Claude Code)
-                            return content.split('\n').map((line, i) => `${i + 1}: ${line}`).join('\n');
+
+                            // 模拟带行号的前端只读降级分页读取 (复刻后端逻辑)
+                            const offset = Math.max(1, Number(args.offset) || 1) - 1; // 0-indexed
+                            const limit = Math.min(1500, Number(args.limit) || 500);
+                            const allLines = content.split('\n');
+                            const totalLines = allLines.length;
+                            const selectedLines = allLines.slice(offset, offset + limit);
+                            const numbered = selectedLines.map((line, i) => `${offset + i + 1}: ${line}`).join('\n');
+                            let output = `文件 "${args.path}" 的内容 (共 ${totalLines} 行，当前显示 ${offset + 1}-${Math.min(offset + limit, totalLines)} 行):\n\n${numbered}`;
+                            if (totalLines > offset + limit) {
+                                output += `\n\n【警告】: 内容过长（还剩 ${totalLines - (offset + limit)} 行未显示）。为保护 Token，已强制截断。请使用 offset/limit 分块读取，或使用 Grep 开检索！`;
+                            }
+                            return output;
                         }
 
                         case 'Write': {
@@ -7866,11 +8100,13 @@ ${await this._buildCodeBlockContext()}`;
 
                         case 'ReadCodeBlock': {
                             if (backend.isAlive()) {
-                                const res = await backend.executeTool('ReadCodeBlock', { path: args.path, key: args.key });
+                                const res = await backend.executeTool('ReadCodeBlock', { path: args.path, key: args.key, offset: args.offset, limit: args.limit });
                                 if (res) {
                                     return res.success ? res.output : `错误: ${res.error}`;
                                 }
                             }
+                            const offset = Math.max(1, Number(args.offset) || 1) - 1; // 0-indexed
+                            const limit = Math.min(1500, Number(args.limit) || 500);
                             const fileContent = await this.fs.readFile(args.path);
                             if (fileContent === undefined) return `错误: 文件 ${args.path} 不存在`;
                             const codeBlocks = extractCodeBlocks(fileContent);
@@ -7888,8 +8124,15 @@ ${await this._buildCodeBlockContext()}`;
                                 const available = codeBlocks.map(b => `"${b.key}"`).join(', ');
                                 return `错误: 字段 "${args.key}" 中未找到代码块。可用的代码块字段: ${available}`;
                             }
-                            return `字段 "${targetBlock.key}" 的代码块 [${targetBlock.rawLangLabel.toUpperCase()}]:\n` +
-                                targetBlock.rawCode.split('\n').map((line, i) => `${i + 1}: ${line}`).join('\n');
+                            const allLines = targetBlock.rawCode.split('\n');
+                            const totalLines = allLines.length;
+                            const selectedLines = allLines.slice(offset, offset + limit);
+                            const numberedCode = selectedLines.map((line, i) => `${offset + i + 1}: ${line}`).join('\n');
+                            let finalOutput = `字段 "${targetBlock.key}" 的代码块 [${targetBlock.rawLangLabel.toUpperCase()}] (共 ${totalLines} 行，当前显示 ${offset + 1}-${Math.min(offset + limit, totalLines)} 行):\n` + numberedCode;
+                            if (totalLines > offset + limit) {
+                                finalOutput += `\n\n【警告】: 内容过长，已强制截断以保护 Token！请传入 offset 和 limit 分页读取，或使用 GrepCodeBlock 搜索内容。`;
+                            }
+                            return finalOutput;
                         }
 
                         case 'EditCodeBlock': {
@@ -8303,7 +8546,19 @@ ${await this._buildCodeBlockContext()}`;
                                                 markdownOnly: true,
                                                 promptOnly: false,
                                                 runOnEdit: true,
-                                                substituteRegex: false
+                                                substituteRegex: 0
+                                            },
+                                            {
+                                                scriptName: "去除多余提示词",
+                                                findRegex: "by妮卡工坊",
+                                                replaceString: "",
+                                                trimStrings: [],
+                                                placement: [2],
+                                                disabled: false,
+                                                markdownOnly: false,
+                                                promptOnly: true,
+                                                runOnEdit: true,
+                                                substituteRegex: 0
                                             }
                                         ]
                                     }
@@ -9692,7 +9947,7 @@ ${await this._buildCodeBlockContext()}`;
                 if (!targetContainer) {
                     // 仅在非生成状态或用户处于最底部时，自动跟随滚动到底部
                     if (!this._isGenerating || isAtBottom) {
-                        container.scrollTop = container.scrollHeight;
+                        this.scrollToBottom();
                     }
                 }
 
@@ -9770,7 +10025,7 @@ ${await this._buildCodeBlockContext()}`;
                 if (div) {
                     div.classList.remove('thinking');
                     const container = document.getElementById('chat-messages');
-                    const isAtBottom = container ? (container.scrollTop + container.clientHeight >= container.scrollHeight - 50) : false;
+                    const wasAtBottom = container ? (container.scrollTop + container.clientHeight >= container.scrollHeight - 80) : false;
                     let textContainer = div.querySelector('.message-text-container');
                     if (div.classList.contains('assistant') && !textContainer) {
                         textContainer = div;
@@ -9780,7 +10035,7 @@ ${await this._buildCodeBlockContext()}`;
                     // 流式显示正在准备的工具调用状态（Preparing...）
                     if (tool_calls && tool_calls.length > 0) {
                         const existing = [...div.querySelectorAll('.inline-tool-pending')];
-                        
+
                         // 1. 如果现有的 DOM 多于当前的 tool_calls，删除多余的
                         while (existing.length > tool_calls.length) {
                             const extra = existing.pop();
@@ -9853,10 +10108,11 @@ ${await this._buildCodeBlockContext()}`;
                         existing.forEach(el => el.remove());
                     }
 
-                    // 仅在非生成状态，或用户没有手动向上翻看时，自动跟随滚动到底部
+                    // 仅在非生成状态，或更新前处于最底部，或用户没有手动向上翻看时，自动跟随滚动到底部
                     if (container) {
-                        if (!this._isGenerating || !this._userScrolledUp) {
-                            container.scrollTop = container.scrollHeight;
+                        if (!this._isGenerating || wasAtBottom || !this._userScrolledUp) {
+                            this._userScrolledUp = false;
+                            this.scrollToBottom();
                         }
                     }
                 }
@@ -9874,6 +10130,7 @@ ${await this._buildCodeBlockContext()}`;
                 document.getElementById('api-url').value = settings.url || 'https://api.openai.com/v1';
                 document.getElementById('api-key').value = settings.key || '';
                 document.getElementById('max-context').value = settings.maxContext || '';
+                document.getElementById('trim-threshold').value = settings.trimThreshold || '';
 
                 const modelSelect = document.getElementById('api-model');
                 modelSelect.innerHTML = settings.models ?
@@ -9919,11 +10176,12 @@ ${await this._buildCodeBlockContext()}`;
                 const url = document.getElementById('api-url').value.trim();
                 const key = document.getElementById('api-key').value.trim();
                 const maxContext = document.getElementById('max-context').value.trim();
+                const trimThreshold = document.getElementById('trim-threshold').value.trim();
                 const modelSelect = document.getElementById('api-model');
                 const models = Array.from(modelSelect.options).map(o => o.value).filter(v => v);
                 const selectedModel = modelSelect.value;
 
-                const settings = { url, key, models, selectedModel, maxContext };
+                const settings = { url, key, models, selectedModel, maxContext, trimThreshold };
                 localStorage.setItem('NikaForge_settings', JSON.stringify(settings));
 
                 document.getElementById('settings-overlay').classList.add('hidden');
