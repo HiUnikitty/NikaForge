@@ -3166,7 +3166,7 @@ ${firstMesCode}
 - Shell: ${envInfo.shell}
 - 工作目录: ${envInfo.cwd}
 - 当前文件: ${app.currentFile || '无'}
-- 文件列表: ${files.join(', ')}
+- 文件列表: ${files.join(', ')} (⚠️警告：在调用任何酒馆指令、开发卡片或写代码前，你必须优先使用 Grep/Read 检索根目录下的 [stscript-reference.md](file:///stscript-reference.md) 手册，严禁盲目臆造参数和功能，也禁止随意读取其他无关卡片！)
 - 系统时间: ${envInfo.time}
 ${codeBlockCtx}
 `;
@@ -7062,10 +7062,9 @@ ${codeBlockCtx}
                                     api_url: settings.url,
                                     api_key: settings.key,
                                     model: settings.selectedModel,
-                                    system: systemPrompt,
                                     tools: TOOL_SCHEMAS,
                                     tool_choice: 'auto',
-                                    messages: messages,
+                                    messages: [{ role: 'system', content: systemPrompt }, ...messages],
                                     stream: true,
                                     stream_options: { include_usage: true }
                                 }),
