@@ -3,7 +3,9 @@ import { createRequire } from 'module';
 import { fileURLToPath } from 'url';
 const require = createRequire(import.meta.url);
 
-if (typeof Bun === 'undefined') {
+const isRealBun = typeof Bun !== 'undefined';
+
+if (!isRealBun) {
   const fs = require('fs');
   const path = require('path');
   const http = require('http');
@@ -70,7 +72,7 @@ if (typeof Bun === 'undefined') {
 
 // 动态环境路径解析，兼容 Node 与 Bun
 import { resolve, dirname } from 'path';
-const currentDir = typeof Bun !== 'undefined'
+const currentDir = isRealBun
   ? import.meta.dir
   : dirname(fileURLToPath(import.meta.url));
 
