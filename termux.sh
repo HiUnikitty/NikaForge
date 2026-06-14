@@ -38,42 +38,25 @@ else
     echo "[NikaForge] Not a Git clone. Skipping update check."
 fi
 
-# ================= 3. check bun
-check_bun() {
-    command -v bun >/dev/null 2>&1
+# ================= 3. check node
+check_node() {
+    command -v node >/dev/null 2>&1
 }
 
-if ! check_bun; then
-    echo "[NikaForge] Bun is not installed. Setting up Termux environment..."
+if ! check_node; then
+    echo "[NikaForge] Node.js is not installed. Installing native nodejs-lts..."
+    pkg update -y
+    pkg install -y nodejs-lts
     
-    # 强制安装 proot (用于映射 glibc 动态链接器)
-    if ! command -v termux-chroot >/dev/null 2>&1; then
-        echo "[NikaForge] Installing proot (required for running glibc binaries)..."
-        pkg install -y proot
-    fi
-    
-    echo "[NikaForge] Downloading and installing Bun binary..."
-    curl -L https://github.com/oven-sh/bun/releases/latest/download/bun-linux-aarch64.zip -o bun.zip
-    unzip -o bun.zip
-    mkdir -p "$PREFIX/bin"
-    mv -f bun-linux-aarch64/bun "$PREFIX/bin/"
-    chmod +x "$PREFIX/bin/bun"
-    rm -rf bun.zip bun-linux-aarch64
-    
-    if ! check_bun; then
+    if ! check_node; then
         echo "========================================================"
-        echo "[NikaForge] ERROR: Failed to install Bun environment!"
-        echo "[NikaForge] Bun is mandatory to run NikaForge backend."
-        echo "[NikaForge] Please try downloading and installing Bun manually."
+        echo "[NikaForge] ERROR: Failed to install Node.js environment!"
+        echo "[NikaForge] Node.js is mandatory to run NikaForge backend."
         echo "========================================================"
         exit 1
     fi
 else
-    echo "[NikaForge] Bun environment is ready."
-    if ! command -v termux-chroot >/dev/null 2>&1; then
-        echo "[NikaForge] Installing proot (required for running glibc binaries)..."
-        pkg install -y proot
-    fi
+    echo "[NikaForge] Node.js environment is ready."
 fi
 
 # ================= 4. install dependencies
@@ -84,7 +67,7 @@ if [ "$NEED_INSTALL" -eq 1 ]; then
     RETRY_COUNT=0
     SUCCESS=0
     while [ $RETRY_COUNT -lt 3 ]; do
-        if termux-chroot bun install; then
+        if npm install --registry=https://registry.npmmirror.com; then
             SUCCESS=1
             break
         fi
@@ -96,16 +79,9 @@ if [ "$NEED_INSTALL" -eq 1 ]; then
     if [ $SUCCESS -eq 0 ]; then
         echo "========================================================"
         echo "[NikaForge] ERROR: Failed to install dependencies after 3 attempts!"
-        echo "[NikaForge] Attempting fallback to domestic npm registry (npmmirror)..."
         echo "========================================================"
-        
-        if npm install --registry=https://registry.npmmirror.com; then
-            echo "[NikaForge] Successfully installed using domestic registry!"
-        else
-            echo "[NikaForge] Fallback install also failed. Please check network manually and try again."
-            cd ..
-            exit 1
-        fi
+        cd ..
+        exit 1
     else
         echo "[NikaForge] Dependencies are ready!"
     fi
@@ -119,7 +95,7 @@ fi
 
 # ================= 6. run server
 echo "----------------------------------------------------"
-echo "[NikaForge] Starting backend server. PLEASE DO NOT CLOSE THIS WINDOW."
+echo "[NikaForge] Starting backend server via Node.js. PLEASE DO NOT CLOSE THIS WINDOW."
 echo "----------------------------------------------------"
 cd backend || exit 1
-termux-chroot bun run server.ts
+npx tsx server.ts
