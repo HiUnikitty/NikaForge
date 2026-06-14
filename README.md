@@ -62,14 +62,24 @@
 
 ### 第二步：一键启动后端服务
 
+#### 🖥️ 电脑端 (Windows) 启动：
 1. 进入你刚刚通过酒馆下载的扩展目录：
    ```text
    SillyTavern/data/default-user/extensions/NikaForge
    ```
 2. 双击运行目录下的 **`start.bat`** 批处理文件。
 3. 此时会弹出一个黑色的控制台窗口，它会自动帮你检测运行环境（如 Bun 依赖），**并在你的电脑桌面上自动生成一个“NikaForge IDE”快捷方式**（后续直接在桌面双击该快捷方式运行即可）。
+
+#### 📱 手机端 (Termux) 启动：
+1. 启动酒馆后，点击 Termux 界面上 ESC 右边的 **“≡” 按钮**。
+2. 在弹出的侧边栏中点击 **`NEW SESSION`** 新建一个会话。
+3. 输入以下命令并按回车执行：
+   ```bash
+   cd ~/SillyTavern/data/default-user/extensions/NikaForge && sed -i 's/\r$//' termux.sh && bash termux.sh
+   ```
+
 > [!IMPORTANT]
-> **开发时请不要关闭这个黑色控制台窗口！** 它是 AI 帮你修改文件、打包卡片的核心通道。
+> **开发时请不要关闭这个黑色控制台窗口或 Termux 后台会话！** 它是 AI 帮你修改文件、打包卡片的核心通道。
 
 ### 第三步：在酒馆中启用
 
