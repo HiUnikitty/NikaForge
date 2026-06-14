@@ -35,7 +35,11 @@ goto CHECK_BUN
 :DO_GIT_PULL
 echo [NikaForge] New version found! Pulling code...
 call git -c http.sslVerify=false pull
-set NEED_INSTALL=1
+echo ========================================================
+echo [NikaForge] Update successfully downloaded!
+echo Please restart start.bat to apply the latest updates.
+echo ========================================================
+exit
 
 rem ================= 3. check bun
 :CHECK_BUN
