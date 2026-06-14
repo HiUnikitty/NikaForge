@@ -44,22 +44,36 @@ check_bun() {
 }
 
 if ! check_bun; then
-    echo "[NikaForge] Bun is not installed. Attempting native installation via Termux User Repository (TUR)..."
-    pkg update -y
-    pkg install -y tur-repo
-    pkg install -y bun
+    echo "[NikaForge] Bun is not installed. Setting up Termux environment..."
+    
+    # 强制安装 proot (用于映射 glibc 动态链接器)
+    if ! command -v termux-chroot >/dev/null 2>&1; then
+        echo "[NikaForge] Installing proot (required for running glibc binaries)..."
+        pkg install -y proot
+    fi
+    
+    echo "[NikaForge] Downloading and installing Bun binary..."
+    curl -L https://github.com/oven-sh/bun/releases/latest/download/bun-linux-aarch64.zip -o bun.zip
+    unzip -o bun.zip
+    mkdir -p "$PREFIX/bin"
+    mv -f bun-linux-aarch64/bun "$PREFIX/bin/"
+    chmod +x "$PREFIX/bin/bun"
+    rm -rf bun.zip bun-linux-aarch64
     
     if ! check_bun; then
         echo "========================================================"
         echo "[NikaForge] ERROR: Failed to install Bun environment!"
         echo "[NikaForge] Bun is mandatory to run NikaForge backend."
-        echo "[NikaForge] Please install Bun manually by running:"
-        echo "  pkg update -y && pkg install -y tur-repo && pkg install -y bun"
+        echo "[NikaForge] Please try downloading and installing Bun manually."
         echo "========================================================"
         exit 1
     fi
 else
     echo "[NikaForge] Bun environment is ready."
+    if ! command -v termux-chroot >/dev/null 2>&1; then
+        echo "[NikaForge] Installing proot (required for running glibc binaries)..."
+        pkg install -y proot
+    fi
 fi
 
 # ================= 4. install dependencies
@@ -70,7 +84,7 @@ if [ "$NEED_INSTALL" -eq 1 ]; then
     RETRY_COUNT=0
     SUCCESS=0
     while [ $RETRY_COUNT -lt 3 ]; do
-        if bun install; then
+        if termux-chroot bun install; then
             SUCCESS=1
             break
         fi
@@ -108,4 +122,4 @@ echo "----------------------------------------------------"
 echo "[NikaForge] Starting backend server. PLEASE DO NOT CLOSE THIS WINDOW."
 echo "----------------------------------------------------"
 cd backend || exit 1
-bun run server.ts
+termux-chroot bun run server.ts
