@@ -4,7 +4,7 @@
 import { readTextFile, writeTextFile } from '../pngHelper';
 import { resolve } from 'path';
 import type { Tool, ToolInput, ToolResult, ToolContext } from '../engine/types';
-import { extractCodeBlocks, wrapInQuotes } from './utils';
+import { extractCodeBlocks, wrapInQuotes, checkDangerousPatterns } from './utils';
 
 export const WriteCodeBlockTool: Tool = {
   name: 'WriteCodeBlock',
@@ -25,6 +25,16 @@ export const WriteCodeBlockTool: Tool = {
     const code = input.code as string;
 
     try {
+      // 静态安全检查：拦截会因 JSON 序列化而断裂的危险代码模式
+      const dangerIssues = checkDangerousPatterns(code);
+      if (dangerIssues.length > 0) {
+        return {
+          success: false,
+          output: '',
+          error: `⚠️ 代码静态检查未通过，写入已阻止！请修复以下问题后重试：\n${dangerIssues.map((d, i) => `${i + 1}. ${d}`).join('\n')}`
+        };
+      }
+
       const fileContent = await readTextFile(filePath);
 
       // JSON Path write logic

@@ -4,7 +4,7 @@
 import { readTextFile, writeTextFile } from '../pngHelper';
 import { resolve } from 'path';
 import type { Tool, ToolInput, ToolResult, ToolContext } from '../engine/types';
-import { extractCodeBlocks, wrapInQuotes } from './utils';
+import { extractCodeBlocks, wrapInQuotes, checkDangerousPatterns } from './utils';
 
 export const EditCodeBlockTool: Tool = {
   name: 'EditCodeBlock',
@@ -49,6 +49,18 @@ export const EditCodeBlockTool: Tool = {
     }
 
     try {
+      // 静态安全检查：拦截所有 new_string 中会因 JSON 序列化而断裂的危险代码模式
+      for (let i = 0; i < rawEdits.length; i++) {
+        const dangerIssues = checkDangerousPatterns(rawEdits[i].new_string as string);
+        if (dangerIssues.length > 0) {
+          return {
+            success: false,
+            output: '',
+            error: `⚠️ Edit #${i + 1} 的 new_string 代码静态检查未通过，编辑已阻止！请修复以下问题后重试：\n${dangerIssues.map((d, j) => `${j + 1}. ${d}`).join('\n')}`
+          };
+        }
+      }
+
       const fileContent = await readTextFile(filePath);
 
       // JSON Path edit logic

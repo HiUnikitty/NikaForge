@@ -67,3 +67,37 @@ export function wrapInQuotes(lang: string, newRawCode: string): string {
     .replace(/\n/g, '\\n');
   return `"\`\`\`${lang}\\n${escaped}\\n\`\`\`"`;
 }
+
+/**
+ * 静态检查：检测代码中会因 JSON 序列化而断裂的危险模式。
+ * 返回检测到的问题列表（空数组表示安全）。
+ */
+export function checkDangerousPatterns(code: string): string[] {
+  const issues: string[] = [];
+
+  // 1. 检测正则中的 /\n/g 或 /\n/ （会被 JSON 展开为真实换行，导致正则断行）
+  //    匹配形如 /...\n.../  的正则字面量中的 \n
+  if (/\/[^\/]*\\n[^\/]*\/[gimsuy]*/g.test(code)) {
+    issues.push('检测到正则表达式中使用了 /\\n/（会被 JSON 破坏为真实换行导致代码断裂）。请改用 /\\x0a/ 或使用 RegExp 构造函数。');
+  }
+
+  // 2. 检测 [\s\S] （会被 JSON 破坏为 [sS]）
+  if (/\[\\s\\S\]/g.test(code)) {
+    issues.push('检测到使用了 [\\s\\S] 匹配任意字符（会被 JSON 破坏为 [sS]）。必须改用 [^] 安全写法。');
+  }
+
+  // 3. 检测 split('\n') 或 split("\n") （\n 会被 JSON 展开）
+  if (/split\s*\(\s*['"]\\n['"]\s*\)/g.test(code)) {
+    issues.push('检测到使用了 split(\'\\n\')（\\n 会被 JSON 展开导致语法错误）。请使用 CSS white-space: pre-wrap 自然渲染换行，或使用 split(/\\x0a/)。');
+  }
+
+  // 4. 检测 .replace 中的裸 $1, $2 等反向引用（会被酒馆正则机制二次替换破坏）
+  //    匹配 .replace(..., '...$1...')  或  .replace(..., "...$1...")
+  //    排除 '$' + '1' 这种安全拼接写法
+  const replaceWithDollar = /\.replace\s*\([^)]*,\s*(['"`])(?:[^'"`])*\$\d+(?:[^'"`])*\1\s*\)/g;
+  if (replaceWithDollar.test(code)) {
+    issues.push('检测到 .replace() 第二参数中直接使用了 $1/$2 等占位符（会被酒馆正则机制强行替换破坏）。必须改用回调函数写法：str.replace(reg, (m, p1) => p1)，或用拼接绕过：\'$\' + \'1\'。');
+  }
+
+  return issues;
+}
