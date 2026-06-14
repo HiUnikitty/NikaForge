@@ -1,5 +1,6 @@
 // --- Node.js & Bun 双模兼容运行 Polyfill 层 ---
 import { createRequire } from 'module';
+import { fileURLToPath } from 'url';
 const require = createRequire(import.meta.url);
 
 if (typeof Bun === 'undefined') {
@@ -68,13 +69,13 @@ if (typeof Bun === 'undefined') {
 }
 
 // 动态环境路径解析，兼容 Node 与 Bun
+import { resolve, dirname } from 'path';
 const currentDir = typeof Bun !== 'undefined'
   ? import.meta.dir
-  : require('path').dirname(new URL(import.meta.url).pathname);
+  : dirname(fileURLToPath(import.meta.url));
 
 import { ToolEngine } from './engine/ToolEngine';
 import { ALL_TOOLS } from './tools';
-import { resolve } from 'path';
 import { extractDataFromPng, embedDataInPng } from './pngHelper';
 
 // --- Configuration ---
