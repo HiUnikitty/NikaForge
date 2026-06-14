@@ -8,6 +8,11 @@ const extensionName = "NikaForge-ide";
 const extensionFolderPath = import.meta.url.substring(0, import.meta.url.lastIndexOf('/'));
 
 function createUI() {
+    const isMobile = /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent);
+    const helpText = isMobile
+        ? `检测到扩展后端未运行，请在 Termux 中执行：<br><code style="background:rgba(255,255,255,0.1); padding:4px 6px; border-radius:4px; font-family:monospace; word-break:break-all; user-select:all; display:block; margin:6px auto 0; max-width:95%; color:#ffd2d2;">cd ~/SillyTavern/data/default-user/extensions/NikaForge && sed -i 's/\\r$//' termux.sh && bash termux.sh</code>`
+        : `检测到扩展后端未运行，请前往 extensions/NikaForge 目录下双击运行 start.bat 或者桌面的 NikaForge 快捷键`;
+
     const html = `
     <div id="NikaForge-container" style="border-top: 1px solid rgba(255,255,255,0.08); padding-top: 15px; margin-top: 15px;">
         <div class="inline-drawer">
@@ -32,7 +37,7 @@ function createUI() {
                     
                     <!-- 警告提示 -->
                     <div id="NikaForge-health-help" style="margin-top: 8px; font-size: 11px; color: #ff8888; text-align: center; line-height: 1.4;">
-                        检测到扩展后端未运行，请前往 extensions/NikaForge 目录下双击运行 start.bat 或者桌面的NikaForge快捷键
+                        ${helpText}
                     </div>
                     
                     <!-- 原来的描述文字 (成功时显示) -->

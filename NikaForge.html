@@ -1552,9 +1552,9 @@
             max-width: 100% !important;
         }
 
-        /* 移动端底部标签栏 (Bottom Tabs) 样式 */
-        .mobile-tabs {
-            display: none;
+        /* 移动端底部标签栏 (Bottom Tabs) 样式与代码区切换按钮 */
+        .mobile-tabs, #btn-toggle-sub-editor {
+            display: none !important;
         }
 
         @media (max-width: 768px) {
@@ -1622,10 +1622,23 @@
                 flex: 1 !important;
                 height: 100% !important;
             }
-            body.tab-editor #sub-editors-container,
+            body.tab-editor #sub-editors-container {
+                display: none !important;
+                width: 100% !important;
+                height: 100% !important;
+                flex: 1 !important;
+            }
             body.tab-editor #terminal-panel,
             body.tab-editor .resizer-h {
                 display: none !important;
+            }
+
+            /* 二级代码区激活状态（主编辑器隐藏，二级代码区撑满显示） */
+            body.tab-editor.mobile-sub-active #monaco-container {
+                display: none !important;
+            }
+            body.tab-editor.mobile-sub-active #sub-editors-container {
+                display: flex !important;
             }
 
             body.tab-terminal main.editor-area {
@@ -1717,8 +1730,8 @@
                 justify-content: flex-end !important;
                 gap: 8px !important;
             }
-            /* 隐藏右侧多余操作按钮，但保留设置、自动设计、保存聊天、关闭IDE和Git备份按钮 */
-            .header-actions > button:not(#btn-settings):not(#btn-auto-design):not(#btn-start-chat):not(#btn-close-ide):not(#btn-git-backup),
+            /* 隐藏右侧多余操作按钮，但保留设置、自动设计、保存聊天、关闭IDE、Git备份和切换代码区按钮 */
+            .header-actions > button:not(#btn-settings):not(#btn-auto-design):not(#btn-start-chat):not(#btn-close-ide):not(#btn-git-backup):not(#btn-toggle-sub-editor),
             .header-actions > .menu-dropdown-container {
                 display: none !important;
             }
@@ -1728,6 +1741,25 @@
             }
             #btn-settings {
                 order: 2 !important;
+            }
+            #btn-toggle-sub-editor {
+                order: 2.5 !important;
+                display: none !important;
+                align-items: center !important;
+                justify-content: center !important;
+                gap: 4px !important;
+                padding: 0 8px !important;
+                width: auto !important;
+                height: 32px !important;
+                border-radius: 6px !important;
+                background: var(--bg-accent) !important;
+                border: 1px solid var(--border-color) !important;
+            }
+            body.tab-editor #btn-toggle-sub-editor.has-sub {
+                display: flex !important;
+            }
+            #btn-toggle-sub-editor-text {
+                display: inline !important;
             }
             /* 自动设计靠右，通过 margin-left: auto 推过去 */
             #btn-auto-design {
@@ -1773,6 +1805,12 @@
             </div>
         </div>
         <div class="header-actions">
+            <!-- 移动端主副代码区切换 -->
+            <button class="btn-icon" id="btn-toggle-sub-editor" title="切换代码区" style="display: none;" onclick="app.toggleSubEditorMobile()">
+                <i data-lucide="chevrons-up-down"></i>
+                <span style="font-size: 11px; margin-left: 4px; display: none;" id="btn-toggle-sub-editor-text">副代码</span>
+            </button>
+
             <!-- Git 备份管理 -->
             <button class="btn-icon" id="btn-git-backup" title="Git 备份管理" onclick="app.showGitModal()">
                 <i data-lucide="history"></i>
@@ -6410,11 +6448,15 @@ ${codeBlockCtx}
                 // --- 移动端底部 Tab 事件绑定 ---
                 document.body.classList.add('tab-chat'); // 默认激活 AI 对话 Tab
                 
-                // 监听编辑器容器尺寸变化，彻底解决移动端切换 Tab 后的黑屏自适应问题
+                // 监听编辑器容器尺寸变化，使用 requestAnimationFrame 进行防抖，彻底消除高频尺寸震荡引起的主线程卡死
                 if (window.ResizeObserver) {
+                    let rafId = null;
                     const ro = new ResizeObserver(() => {
-                        if (this.editor) this.editor.layout();
-                        if (this._diffEditor) this._diffEditor.layout();
+                        if (rafId) cancelAnimationFrame(rafId);
+                        rafId = requestAnimationFrame(() => {
+                            if (this.editor) this.editor.layout();
+                            if (this._diffEditor) this._diffEditor.layout();
+                        });
                     });
                     ro.observe(document.getElementById('monaco-container'));
                 }
@@ -10854,12 +10896,48 @@ ${codeBlockCtx}
                     // 激活对应的块
                     const activeIdx = oldActiveIdx < blocks.length ? oldActiveIdx : 0;
                     this.switchActiveSubBlock(activeIdx);
+
+                    // 控制移动端切换代码区按钮的显隐
+                    const toggleBtn = document.getElementById('btn-toggle-sub-editor');
+                    if (toggleBtn) toggleBtn.classList.add('has-sub');
                 } else {
                     container.style.display = 'none';
                     const resizer = document.getElementById('resizer-sub-editor');
                     if (resizer) resizer.style.display = 'none';
                     this.disposeSubEditor();
+
+                    // 隐藏移动端切换按钮并重置激活状态
+                    const toggleBtn = document.getElementById('btn-toggle-sub-editor');
+                    if (toggleBtn) toggleBtn.classList.remove('has-sub');
+                    document.body.classList.remove('mobile-sub-active');
+                    const btnText = document.getElementById('btn-toggle-sub-editor-text');
+                    if (btnText) btnText.textContent = '副代码';
+                    const btnIcon = document.querySelector('#btn-toggle-sub-editor i');
+                    if (btnIcon && window.lucide) {
+                        btnIcon.setAttribute('data-lucide', 'chevrons-up-down');
+                        window.lucide.createIcons({ element: document.getElementById('btn-toggle-sub-editor') });
+                    }
                 }
+            },
+
+            // 移动端主副代码区切换
+            toggleSubEditorMobile() {
+                const isActive = document.body.classList.toggle('mobile-sub-active');
+                const btnText = document.getElementById('btn-toggle-sub-editor-text');
+                const btnIcon = document.querySelector('#btn-toggle-sub-editor i');
+                
+                if (btnText) {
+                    btnText.textContent = isActive ? '主代码' : '副代码';
+                }
+                if (btnIcon && window.lucide) {
+                    btnIcon.setAttribute('data-lucide', isActive ? 'code-2' : 'chevrons-up-down');
+                    window.lucide.createIcons({ element: document.getElementById('btn-toggle-sub-editor') });
+                }
+                
+                // 切换后强制刷新布局
+                if (this.editor) this.editor.layout();
+                if (this._subEditor) this._subEditor.layout();
+                if (this._subDiffEditor) this._subDiffEditor.layout();
             },
 
             // 切换二级编辑器的活动代码块
