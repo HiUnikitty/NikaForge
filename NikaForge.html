@@ -3146,18 +3146,6 @@ ${firstMesCode}
                 const settings = JSON.parse(localStorage.getItem('NikaForge_settings') || '{}');
                 const files = await app.fs.listFiles();
 
-                let memoryContent = "";
-                try {
-                    const memoryFiles = files.filter(f => f.startsWith('.NikaForge/memory/'));
-                    if (memoryFiles.length > 0) {
-                        memoryContent = "\n";
-                        for (const f of memoryFiles) {
-                            const content = await app.fs.readFile(f);
-                            memoryContent += `### ${f}\n${content}\n\n`;
-                        }
-                    }
-                } catch (e) { console.warn('加载记忆失败:', e); }
-
                 const backendAlive = backend.isAlive();
                 const envInfo = {
                     cwd: backendAlive ? (backend.cwd || '/NikaForge-fs') : '/NikaForge-fs',
@@ -3172,10 +3160,7 @@ ${firstMesCode}
                     codeBlockCtx = `\n\n## 当前文件上下文\n${codeBlockCtx}`;
                 }
 
-                return `### 五、记忆系统
-- 你在 \`.NikaForge/memory/\` 下拥有持久化记忆。这些记忆会在每次对话里自动添加给你。你可以手动**精炼地**更新用户的性癖等有用内容到用于记忆的md文件中。
-${memoryContent}
-## 当前环境
+                return `## 当前环境
 - 后端状态: ${envInfo.backend}
 - 运行平台: ${envInfo.platform}
 - Shell: ${envInfo.shell}
