@@ -1620,7 +1620,7 @@
             body.tab-editor #monaco-container {
                 display: block !important;
                 flex: 1 !important;
-                height: 100% !important;
+                height: auto !important;
             }
             body.tab-editor #sub-editors-container {
                 display: none !important;
@@ -1782,6 +1782,50 @@
             }
             #btn-close-ide {
                 order: 5 !important;
+            }
+
+            /* 移动端 Diff 栏自适应与遮挡防溢出优化 */
+            .diff-bar {
+                padding: 4px 8px !important;
+                gap: 6px !important;
+                flex-wrap: nowrap !important;
+                justify-content: space-between !important;
+            }
+            .diff-bar .diff-title {
+                display: none !important; /* 移动端隐藏“快照变更”字样以释放空间 */
+            }
+            .diff-bar .diff-stat {
+                font-size: 11px !important;
+                flex-shrink: 0 !important;
+            }
+            #diff-file-name {
+                display: block !important;
+                white-space: nowrap !important;
+                overflow: hidden !important;
+                text-overflow: ellipsis !important;
+                font-size: 11px !important;
+                min-width: 0 !important; /* 关键：允许 flex 自动压缩，防止挤压右侧控制按钮 */
+                flex: 1 !important;
+                margin: 0 4px !important;
+            }
+            .diff-bar .diff-nav-btn {
+                padding: 2px 4px !important;
+                flex-shrink: 0 !important;
+            }
+            #diff-position {
+                font-size: 10px !important;
+                min-width: 45px !important;
+                white-space: nowrap !important;
+                flex-shrink: 0 !important;
+            }
+            .diff-bar .diff-close {
+                padding: 4px 8px !important;
+                font-size: 18px !important;
+                font-weight: bold !important;
+                color: #ef4444 !important; /* 移动端使用亮红色标识关闭按钮，防止误触 */
+                opacity: 0.8 !important;
+                flex-shrink: 0 !important;
+                margin-left: 4px !important;
             }
         }
     </style>
@@ -3370,7 +3414,7 @@ ${firstMesCode}
 #### 2.3 STscript 调用规范
 - 你必须且只能使用酒馆提供的异步函数 \`await STscript('斜杠命令')\` 与后端交互。\`STscript()\` 将自动返回命令执行的管道输出（无需 JSON.parse）。
 - 注意：调用时必须直接写成裸调：\`await STscript(...)\`，绝对禁止画蛇添足加上 \`window.parent\` 前缀（这会因沙盒安全而报错崩溃）！
-- **⚠️ 保证 \`/gen\` 与 \`/genraw\` 输出长度**：必须显式指定 length 参数且推荐不小于 3000（例如 length=3000），强制防止生成内容被截断。
+- **⚠️ 绝对禁止将 \`/gen\` 或 \`/genraw\` 的 length 长度限制限制为 300 等小数字！** 必须显式指定 length 参数且必须不小于 3000（例如必须使用 \`await STscript('/gen length=3000')\` 或者是 \`await STscript('/genraw length=3000')\`，强制且强硬要求设置 \`length=3000\` 以上），否则卡片在酒馆聊天中生成内容必然会因为限制太短而在中间被残酷截断。
 #### 2.4 代码安全约束与规避限制
 - **⚠️ 规避 \$ 冲突与被吞限制**：酒馆内置全局 jQuery，**严禁直接使用全局 \$ 或 \$\$**！必须在脚本头部声明：\`const qs = s => document.querySelector(s); const qsa = s => document.querySelectorAll(s);\` 来替代 DOM 操作。
 - **避免正则破坏**：因代码位于酒馆正则脚本的 \`replaceString\` 中，为防被酒馆正则机制二次解析，**严禁在代码的任何地方（包括字符串、注释、HTML 文本）直接书写字面量形式的 \`\$1\`、\`\$2\` 等 \`\$\` 占位符**（它们在被酒馆加载时会被强行硬替换破坏）！如果需要正则替换，必须改用回调函数返回：\`str.replace(reg, (m, p1) => p1)\`；若必须使用相关字符串，必须用拼接绕过（如 \`'\$' + '1'\`）。
@@ -6447,6 +6491,29 @@ ${codeBlockCtx}
             setupEventListeners() {
                 // --- 移动端底部 Tab 事件绑定 ---
                 document.body.classList.add('tab-chat'); // 默认激活 AI 对话 Tab
+
+                // 解决移动端滑动查看/滚动代码时由于误触激活输入框引发虚拟键盘频繁弹出的问题
+                let touchStartY = 0;
+                let touchStartX = 0;
+                document.addEventListener('touchstart', (e) => {
+                    if (e.touches && e.touches[0]) {
+                        touchStartY = e.touches[0].clientY;
+                        touchStartX = e.touches[0].clientX;
+                    }
+                }, { passive: true });
+                document.addEventListener('touchmove', (e) => {
+                    if (e.touches && e.touches[0]) {
+                        const moveY = Math.abs(e.touches[0].clientY - touchStartY);
+                        const moveX = Math.abs(e.touches[0].clientX - touchStartX);
+                        // 当滑动位移大于 8px 时，判定为用户正在滑动页面而非有意点击编辑，强制模糊输入框
+                        if (moveY > 8 || moveX > 8) {
+                            const active = document.activeElement;
+                            if (active && active.tagName === 'TEXTAREA' && active.classList.contains('inputarea')) {
+                                active.blur();
+                            }
+                        }
+                    }
+                }, { passive: true });
                 
                 // 监听编辑器容器尺寸变化，使用 requestAnimationFrame 进行防抖，彻底消除高频尺寸震荡引起的主线程卡死
                 if (window.ResizeObserver) {

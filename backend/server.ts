@@ -52,8 +52,15 @@ if (!isRealBun) {
             nodeRes.setHeader(key, value);
           });
 
-          const resBody = await webRes.arrayBuffer();
-          nodeRes.end(Buffer.from(resBody));
+          if (webRes.body) {
+            for await (const chunk of (webRes.body as any)) {
+              nodeRes.write(Buffer.from(chunk));
+            }
+            nodeRes.end();
+          } else {
+            const resBody = await webRes.arrayBuffer();
+            nodeRes.end(Buffer.from(resBody));
+          }
         } catch (e: any) {
           console.error('[Node-Compat HTTP] Handler Error:', e);
           nodeRes.statusCode = 500;
