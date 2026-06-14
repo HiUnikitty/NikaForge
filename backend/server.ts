@@ -1,6 +1,73 @@
-// NikaForge Backend Server
-// HTTP + WebSocket server using Bun's native APIs
-// Bridges NikaForge frontend with Claude Code engine tools
+// --- Node.js & Bun 双模兼容运行 Polyfill 层 ---
+if (typeof Bun === 'undefined') {
+  const fs = require('fs');
+  const path = require('path');
+  const http = require('http');
+
+  (globalThis as any).Bun = {
+    file: (filePath: string) => {
+      const absPath = path.resolve(filePath);
+      return {
+        exists: async () => fs.existsSync(absPath),
+        text: async () => fs.readFileSync(absPath, 'utf-8'),
+        arrayBuffer: async () => {
+          const buf = fs.readFileSync(absPath);
+          return buf.buffer.slice(buf.byteOffset, buf.byteOffset + buf.byteLength);
+        }
+      };
+    },
+    write: async (filePath: string, content: any) => {
+      const absPath = path.resolve(filePath);
+      fs.writeFileSync(absPath, Buffer.from(content));
+    },
+    serve: (options: { port: number; fetch: (req: Request) => Promise<Response>; idleTimeout?: number }) => {
+      const server = http.createServer(async (nodeReq: any, nodeRes: any) => {
+        try {
+          const protocol = nodeReq.headers['x-forwarded-proto'] || 'http';
+          const host = nodeReq.headers.host || `localhost:${options.port}`;
+          const url = new URL(nodeReq.url, `${protocol}://${host}`);
+
+          const chunks: any[] = [];
+          for await (const chunk of nodeReq) {
+            chunks.push(chunk);
+          }
+          const bodyBuf = Buffer.concat(chunks);
+
+          const webReq = new Request(url.toString(), {
+            method: nodeReq.method,
+            headers: nodeReq.headers as HeadersInit,
+            body: ['GET', 'HEAD', 'OPTIONS'].includes(nodeReq.method) ? null : bodyBuf
+          });
+
+          const webRes = await options.fetch(webReq);
+
+          nodeRes.statusCode = webRes.status;
+          webRes.headers.forEach((value, key) => {
+            nodeRes.setHeader(key, value);
+          });
+
+          const resBody = await webRes.arrayBuffer();
+          nodeRes.end(Buffer.from(resBody));
+        } catch (e: any) {
+          console.error('[Node-Compat HTTP] Handler Error:', e);
+          nodeRes.statusCode = 500;
+          nodeRes.end(JSON.stringify({ error: e.message }));
+        }
+      });
+
+      server.listen(options.port, '0.0.0.0', () => {
+        console.log(`[Node-Compat] Polyfilled Bun Server running via Node.js on http://localhost:${options.port}`);
+      });
+
+      return { port: options.port };
+    }
+  };
+}
+
+// 动态环境路径解析，兼容 Node 与 Bun
+const currentDir = typeof Bun !== 'undefined'
+  ? import.meta.dir
+  : require('path').dirname(new URL(import.meta.url).pathname);
 
 import { ToolEngine } from './engine/ToolEngine';
 import { ALL_TOOLS } from './tools';
@@ -9,14 +76,14 @@ import { extractDataFromPng, embedDataInPng } from './pngHelper';
 
 // --- Configuration ---
 const PORT = parseInt(process.env.NikaForge_PORT || '3456');
-const CWD = process.env.NikaForge_CWD || resolve(import.meta.dir, '../../../characters'); // Default: default-user characters folder
+const CWD = process.env.NikaForge_CWD || resolve(currentDir, '../../../characters'); // Default: default-user characters folder
 const CORS_ORIGIN = process.env.NikaForge_CORS || '*';
 
 // --- Auto-detect SillyTavern Port from config.yaml ---
 function getSillyTavernPort(): number {
   try {
     const { existsSync, readFileSync } = require('fs');
-    const configPath = resolve(import.meta.dir, '../../../../config.yaml');
+    const configPath = resolve(currentDir, '../../../../config.yaml');
     if (existsSync(configPath)) {
       const content = readFileSync(configPath, 'utf-8');
       const match = content.match(/^port:\s*(\d+)/m);
@@ -44,7 +111,7 @@ console.log(`  Registered tools: ${engine.getToolNames().join(', ')}`);
 // --- 物理拷贝 stscript-reference.md 背景指南自愈保底 (防止其他用户因 Grep/scandir ENOENT 报错) ---
 try {
   const { existsSync, copyFileSync } = require('fs');
-  const sourceRefPath = resolve(import.meta.dir, '../stscript-reference.md');
+  const sourceRefPath = resolve(currentDir, '../stscript-reference.md');
   const targetRefPath = resolve(CWD, 'stscript-reference.md');
   if (existsSync(sourceRefPath) && !existsSync(targetRefPath)) {
     copyFileSync(sourceRefPath, targetRefPath);
@@ -461,7 +528,7 @@ async function handleRequest(req: Request): Promise<Response> {
       } else {
         // 保底：如果是手册不存在且为相对路径，可继续在后端 engine CWD 下尝试找 NikaForge 插件目录下的
         if (filePath.endsWith('stscript-reference.md')) {
-          const fallbackPath = resolve(import.meta.dir, '../stscript-reference.md');
+          const fallbackPath = resolve(currentDir, '../stscript-reference.md');
           const fallbackFile = Bun.file(fallbackPath);
           if (await fallbackFile.exists()) {
             return jsonResponse({ success: true, output: await fallbackFile.text() });
