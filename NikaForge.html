@@ -1551,6 +1551,192 @@
             box-shadow: none !important;
             max-width: 100% !important;
         }
+
+        /* 移动端底部标签栏 (Bottom Tabs) 样式 */
+        .mobile-tabs {
+            display: none;
+        }
+
+        @media (max-width: 768px) {
+            /* 隐藏 PC 端分栏拉伸控件 */
+            .resizer-v, .resizer-h, #resizer-sidebar, #resizer-terminal {
+                display: none !important;
+                height: 0 !important;
+                width: 0 !important;
+                pointer-events: none !important;
+            }
+
+            /* 适配移动端容器高度与布局，强制留出底部 Tab 栏 60px padding-bottom 空间，以防输入框或内容被遮挡 */
+            .app-container {
+                flex-direction: column !important;
+                height: calc(100dvh - var(--header-height) - 60px) !important;
+                width: 100vw !important;
+                overflow: hidden !important;
+                padding-bottom: 60px !important;
+            }
+
+            /* 默认隐藏侧边栏、主编辑器和聊天面板 */
+            #sidebar, main.editor-area, #chat {
+                display: none !important;
+                width: 100% !important;
+                height: 100% !important;
+                border: none !important;
+            }
+
+            /* 根据 body 类名实现面板独占显隐 */
+            body.tab-chat #chat {
+                display: flex !important;
+            }
+
+            body.tab-files #sidebar {
+                display: flex !important;
+            }
+
+            body.tab-editor main.editor-area {
+                display: flex !important;
+                flex-direction: column !important;
+            }
+            /* 核心：代码模式下，编辑器直接子 div 撑满 100% */
+            body.tab-editor main.editor-area > div {
+                display: flex !important;
+                flex-direction: column !important;
+                height: 100% !important;
+                flex: 1 !important;
+            }
+            body.tab-editor #monaco-container {
+                display: block !important;
+                flex: 1 !important;
+                height: 100% !important;
+            }
+            body.tab-editor #sub-editors-container,
+            body.tab-editor #terminal-panel,
+            body.tab-editor .resizer-h {
+                display: none !important;
+            }
+
+            body.tab-terminal main.editor-area {
+                display: flex !important;
+                flex-direction: column !important;
+            }
+            /* 核心：运行模式下，必须彻底隐藏编辑器子 div，防止空 div 占位导致大面积黑屏并挤压终端 */
+            body.tab-terminal main.editor-area > div {
+                display: none !important;
+            }
+            body.tab-terminal #terminal-panel {
+                display: flex !important;
+                flex: 1 !important;
+                height: 100% !important;
+                border-top: none !important;
+            }
+
+            /* 底部标签栏显示 */
+            .mobile-tabs {
+                display: flex !important;
+                position: fixed;
+                bottom: 0;
+                left: 0;
+                right: 0;
+                height: 60px;
+                background: rgba(20, 20, 23, 0.85);
+                backdrop-filter: blur(16px);
+                -webkit-backdrop-filter: blur(16px);
+                border-top: 1px solid var(--border-color);
+                justify-content: space-around;
+                align-items: center;
+                z-index: 9999;
+                padding-bottom: env(safe-area-inset-bottom); /* 适配 iOS 底部安全区 */
+            }
+
+            .mobile-tab-item {
+                display: flex;
+                flex-direction: column;
+                align-items: center;
+                justify-content: center;
+                gap: 4px;
+                color: var(--text-secondary);
+                cursor: pointer;
+                flex: 1;
+                height: 100%;
+                transition: color 0.2s, transform 0.1s;
+                user-select: none;
+            }
+
+            .mobile-tab-item:active {
+                transform: scale(0.95);
+            }
+
+            .mobile-tab-item i {
+                width: 20px;
+                height: 20px;
+            }
+
+            .mobile-tab-item span {
+                font-size: 10px;
+                font-weight: 500;
+            }
+
+            .mobile-tab-item.active {
+                color: var(--accent-color);
+            }
+
+            /* Header 移动端仅保留设置、自动设计、保存并聊天三个按钮 */
+            header {
+                padding: 0 8px !important;
+            }
+            header .logo span {
+                display: none !important;
+            }
+            header .logo {
+                gap: 0 !important;
+            }
+
+            /* 隐藏左侧 PC 布局控制面板 */
+            .layout-controls {
+                display: none !important;
+            }
+            /* 确保右侧面板是弹性拉伸，充当主要排布器 */
+            .header-actions {
+                flex: 1 !important;
+                display: flex !important;
+                align-items: center !important;
+                justify-content: flex-end !important;
+                gap: 8px !important;
+            }
+            /* 隐藏右侧多余操作按钮，但保留设置、自动设计、保存聊天、关闭IDE和Git备份按钮 */
+            .header-actions > button:not(#btn-settings):not(#btn-auto-design):not(#btn-start-chat):not(#btn-close-ide):not(#btn-git-backup),
+            .header-actions > .menu-dropdown-container {
+                display: none !important;
+            }
+            /* 排版重排：设置、Git 靠左 */
+            #btn-git-backup {
+                order: 1 !important;
+            }
+            #btn-settings {
+                order: 2 !important;
+            }
+            /* 自动设计靠右，通过 margin-left: auto 推过去 */
+            #btn-auto-design {
+                order: 3 !important;
+                margin-left: auto !important;
+            }
+            #btn-auto-design span {
+                display: none !important;
+            }
+            #btn-start-chat {
+                order: 4 !important;
+                padding: 6px 12px !important;
+                height: 32px !important;
+                width: auto !important; /* 让保存并聊天自适应文本宽度 */
+            }
+            #btn-start-chat span {
+                display: inline !important; /* 强制显示“保存并聊天”的文本 */
+                font-size: 11px !important;
+                font-weight: 600 !important;
+            }
+            #btn-close-ide {
+                order: 5 !important;
+            }
+        }
     </style>
 </head>
 
@@ -1573,7 +1759,7 @@
         </div>
         <div class="header-actions">
             <!-- Git 备份管理 -->
-            <button class="btn-icon" title="Git 备份管理" onclick="app.showGitModal()">
+            <button class="btn-icon" id="btn-git-backup" title="Git 备份管理" onclick="app.showGitModal()">
                 <i data-lucide="history"></i>
             </button>
 
@@ -1609,10 +1795,10 @@
             </button>
             <button class="btn-send" id="btn-auto-design" style="background: #8b5cf6;"
                 onclick="app.autoDesign.openModal()">
-                <i data-lucide="bot"></i> 自动设计
+                <i data-lucide="bot"></i> <span>自动设计</span>
             </button>
             <button class="btn-send" id="btn-start-chat" style="background: #10b981;">
-                <i data-lucide="message-square"></i> 保存并聊天
+                <i data-lucide="message-square"></i> <span>保存并聊天</span>
             </button>
             <button class="btn-icon" id="btn-close-ide" title="关闭 IDE"
                 style="color: #ef4444; border: 1px solid rgba(239, 68, 68, 0.25); background: rgba(239, 68, 68, 0.08); border-radius: 6px; padding: 4px 8px; margin-left: 8px; display: flex; align-items: center; justify-content: center; height: 32px; width: 32px; cursor: pointer;">
@@ -1620,6 +1806,25 @@
             </button>
         </div>
     </header>
+
+    <div class="mobile-tabs">
+        <div class="mobile-tab-item active" data-tab="chat">
+            <i data-lucide="message-square"></i>
+            <span>AI对话</span>
+        </div>
+        <div class="mobile-tab-item" data-tab="files">
+            <i data-lucide="folder"></i>
+            <span>文件</span>
+        </div>
+        <div class="mobile-tab-item" data-tab="editor">
+            <i data-lucide="code-2"></i>
+            <span>代码</span>
+        </div>
+        <div class="mobile-tab-item" data-tab="terminal">
+            <i data-lucide="play-circle"></i>
+            <span>运行/调试</span>
+        </div>
+    </div>
 
     <div class="app-container">
         <!-- Sidebar -->
@@ -4103,6 +4308,10 @@ ${codeBlockCtx}
                     if (refreshPreview) {
                         await this.updatePreview();
                     }
+                    if (window.innerWidth <= 768) {
+                        const editorTabBtn = document.querySelector('.mobile-tab-item[data-tab="editor"]');
+                        if (editorTabBtn) editorTabBtn.click();
+                    }
                 } finally {
                     this._isLoadingFile = false;
                 }
@@ -6183,6 +6392,34 @@ ${codeBlockCtx}
             },
 
             setupEventListeners() {
+                // --- 移动端底部 Tab 事件绑定 ---
+                document.body.classList.add('tab-chat'); // 默认激活 AI 对话 Tab
+                
+                // 监听编辑器容器尺寸变化，彻底解决移动端切换 Tab 后的黑屏自适应问题
+                if (window.ResizeObserver) {
+                    const ro = new ResizeObserver(() => {
+                        if (this.editor) this.editor.layout();
+                        if (this._diffEditor) this._diffEditor.layout();
+                    });
+                    ro.observe(document.getElementById('monaco-container'));
+                }
+
+                document.querySelectorAll('.mobile-tab-item').forEach(item => {
+                    item.addEventListener('click', () => {
+                        const tab = item.getAttribute('data-tab');
+                        document.querySelectorAll('.mobile-tab-item').forEach(btn => btn.classList.remove('active'));
+                        item.classList.add('active');
+                        
+                        document.body.classList.remove('tab-chat', 'tab-files', 'tab-editor', 'tab-terminal');
+                        document.body.classList.add('tab-' + tab);
+                        
+                        // 切换到编辑器 Tab 时，自动布局防黑边
+                        if (tab === 'editor' && this.editor) {
+                            setTimeout(() => this.editor.layout(), 50);
+                        }
+                    });
+                });
+
                 // 监听全局 details 的 toggle 事件以记住用户的折叠习惯
                 document.addEventListener('toggle', (e) => {
                     if (e.target && e.target.tagName === 'DETAILS') {
