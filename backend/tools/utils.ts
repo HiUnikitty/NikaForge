@@ -91,12 +91,10 @@ export function checkDangerousPatterns(code: string): string[] {
     issues.push('检测到使用了 split(\'\\n\')（\\n 会被 JSON 展开导致语法错误）。请使用 CSS white-space: pre-wrap 自然渲染换行，或使用 split(/\\x0a/)。');
   }
 
-  // 4. 检测 .replace 中的裸 $1, $2 等反向引用（会被酒馆正则机制二次替换破坏）
-  //    匹配 .replace(..., '...$1...')  或  .replace(..., "...$1...")
-  //    排除 '$' + '1' 这种安全拼接写法
-  const replaceWithDollar = /\.replace\s*\([^)]*,\s*(['"`])(?:[^'"`])*\$\d+(?:[^'"`])*\1\s*\)/g;
-  if (replaceWithDollar.test(code)) {
-    issues.push('检测到 .replace() 第二参数中直接使用了 $1/$2 等占位符（会被酒馆正则机制强行替换破坏）。必须改用回调函数写法：str.replace(reg, (m, p1) => p1)，或用拼接绕过：\'$\' + \'1\'。');
+  // 4. 检测任何地方出现的 $1, $2 等模式（会被酒馆二次替换机制强行替换破坏）
+  //    一旦在代码文本中直接出现 $ 紧跟数字，就予以拦截
+  if (/\$\d+/.test(code)) {
+    issues.push('检测到代码中直接出现了 $1、$2 等占位符（会被酒馆机制在加载时二次替换破坏）。任何地方的代码都不许直接出现 $1、$2 等模式，必须改用拼接绕过（例如：\'$\' + \'1\'），或在 replace 中使用函数回调。');
   }
 
   return issues;

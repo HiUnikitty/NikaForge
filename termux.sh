@@ -9,8 +9,8 @@ FIRST_RUN=0
 NEED_INSTALL=0
 
 # ================= 1. check node_modules
-if [ ! -d "backend/node_modules" ]; then
-    echo "[NikaForge] node_modules not found. First run detected."
+if [ ! -d "backend/node_modules" ] || [ ! -d "backend/node_modules/glob" ]; then
+    echo "[NikaForge] node_modules not found or incomplete. Setup required."
     FIRST_RUN=1
     NEED_INSTALL=1
 fi
