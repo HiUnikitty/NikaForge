@@ -100,9 +100,9 @@ function openNikaForgeIDE() {
 
     // 创建全屏遮罩及 iframe 容器
     const overlay = $(`
-    <div id="NikaForge-overlay" style="position: fixed; top: 0; left: 0; width: 100vw; height: 100vh; z-index: 999999; background: #0a0a0c; display: flex; flex-direction: column; opacity: 0; transition: opacity 0.2s ease;">
+    <div id="NikaForge-overlay" style="position: fixed; top: 0; left: 0; width: 100vw; height: 100dvh; z-index: 999999; background: #0a0a0c; display: flex; flex-direction: column; opacity: 0; transition: opacity 0.2s ease;">
         <!-- iframe 主体 -->
-        <iframe src="${extensionFolderPath}/NikaForge.html" style="flex: 1; border: none; width: 100%; height: 100vh; background: #0a0a0c;"></iframe>
+        <iframe src="${extensionFolderPath}/NikaForge.html?v=${Date.now()}" style="flex: 1; border: none; width: 100%; height: 100%; background: #0a0a0c;"></iframe>
     </div>
     `);
 
