@@ -1,4 +1,7 @@
 // --- Node.js & Bun 双模兼容运行 Polyfill 层 ---
+import { createRequire } from 'module';
+const require = createRequire(import.meta.url);
+
 if (typeof Bun === 'undefined') {
   const fs = require('fs');
   const path = require('path');
